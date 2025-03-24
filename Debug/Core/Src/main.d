@@ -1,6 +1,6 @@
 Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h \
- ../Core/Inc/stm32l4xx_hal_conf.h \
+ ../Drivers/HAL/Inc/stm32l4xx_hal_conf.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_rcc.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_def.h \
  ../Drivers/CMSIS/Device/ST/STM32L4xx/Include/stm32l4xx.h \
@@ -46,10 +46,14 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/semphr.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/queue.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h \
- ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h
+ ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h \
+ ../Drivers/VAL/Inc/val.h ../Drivers/VAL/Inc/val_status.h \
+ ../Drivers/VAL/Inc/val_serial_comms.h ../Drivers/VAL/Inc/val_pwm.h \
+ ../Drivers/VAL/Inc/val_analog.h ../Drivers/VAL/Inc/val_data_store.h \
+ ../Drivers/VAL/Inc/val_pins.h ../Drivers/VAL/Inc/val_sys_clock.h
 ../Core/Inc/main.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
-../Core/Inc/stm32l4xx_hal_conf.h:
+../Drivers/HAL/Inc/stm32l4xx_hal_conf.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_rcc.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_def.h:
 ../Drivers/CMSIS/Device/ST/STM32L4xx/Include/stm32l4xx.h:
@@ -96,3 +100,11 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Middlewares/Third_Party/FreeRTOS/Source/include/queue.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h:
+../Drivers/VAL/Inc/val.h:
+../Drivers/VAL/Inc/val_status.h:
+../Drivers/VAL/Inc/val_serial_comms.h:
+../Drivers/VAL/Inc/val_pwm.h:
+../Drivers/VAL/Inc/val_analog.h:
+../Drivers/VAL/Inc/val_data_store.h:
+../Drivers/VAL/Inc/val_pins.h:
+../Drivers/VAL/Inc/val_sys_clock.h:
