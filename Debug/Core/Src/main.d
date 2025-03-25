@@ -52,7 +52,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/VAL/Inc/val_analog.h ../Drivers/VAL/Inc/val_data_store.h \
  ../Drivers/VAL/Inc/val_pins.h ../Drivers/VAL/Inc/val_sys_clock.h \
  ../Core/Inc/app_comms_handler.h ../Drivers/VAL/Inc/val_status.h \
- ../Core/Inc/app_sys_coordinator.h ../Core/Inc/app_comms_handler.h
+ ../Core/Inc/app_sys_coordinator.h ../Core/Inc/app_comms_handler.h \
+ ../Core/Inc/app_led_driver.h
 ../Core/Inc/main.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
 ../Drivers/HAL/Inc/stm32l4xx_hal_conf.h:
@@ -114,3 +115,4 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Drivers/VAL/Inc/val_status.h:
 ../Core/Inc/app_sys_coordinator.h:
 ../Core/Inc/app_comms_handler.h:
+../Core/Inc/app_led_driver.h:

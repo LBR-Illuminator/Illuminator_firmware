@@ -27,11 +27,12 @@
 #define COMMS_HANDLER_PRIORITY     osPriorityNormal
 
 #define RX_BUFFER_SIZE             256
-#define TX_BUFFER_SIZE             256
+#define TX_BUFFER_SIZE             512
 
 /* Message types */
 #define MSG_TYPE_CMD               "cmd"
 #define MSG_TYPE_RESP              "resp"
+#define MSG_TYPE_EVENT             "event"
 
 /* Private variables ---------------------------------------------------------*/
 static TaskHandle_t commsHandlerTaskHandle = NULL;
@@ -48,6 +49,12 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr);
 static void COMMS_SerialRxCallback(uint8_t byte);
 static void COMMS_SendPingResponse(const char* msgId);
 static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId);
+static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status);
+static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status);
+static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId);
+static void COMMS_SendAllSensorDataResponse(const char* msgId);
+static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL_Status status);
+static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const char* action, const char* message);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -268,6 +275,164 @@ static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status)
 }
 
 /**
+ * @brief Send sensor data response for a specific light
+ * @param msgId Original message ID
+ * @param lightId Light source ID
+ * @retval None
+ */
+static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId) {
+  LightSensorData_t sensorData;
+  VAL_Status status = VAL_ERROR;
+
+  /* Get sensor data for the specified light */
+  if (lightId >= 1 && lightId <= 3) {
+    status = SYS_Coordinator_GetLightSensorData(lightId, &sensorData);
+  }
+
+  /* Format response */
+  int length;
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"status\","
+        "\"action\":\"get_sensors\","
+        "\"data\":{"
+          "\"status\":\"ok\","
+          "\"sensor\":{"
+            "\"id\":%u,"
+            "\"current\":%.1f,"
+            "\"temperature\":%.1f"
+          "}"
+        "}"
+      "}\r\n",
+      msgId, lightId, sensorData.current, sensorData.temperature);
+  } else {
+    /* Error response */
+    COMMS_SendErrorResponse(msgId, "status", "get_sensors",
+                          "Failed to retrieve sensor data");
+    return;
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+ * @brief Send sensor data response for all lights
+ * @param msgId Original message ID
+ * @retval None
+ */
+static void COMMS_SendAllSensorDataResponse(const char* msgId) {
+  LightSensorData_t sensorData[3];
+  VAL_Status status;
+
+  /* Get sensor data for all lights */
+  status = SYS_Coordinator_GetAllLightSensorData(sensorData);
+
+  /* Format response */
+  int length;
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"status\","
+        "\"action\":\"get_all_sensors\","
+        "\"data\":{"
+          "\"status\":\"ok\","
+          "\"sensors\":["
+            "{\"id\":1,\"current\":%.1f,\"temperature\":%.1f},"
+            "{\"id\":2,\"current\":%.1f,\"temperature\":%.1f},"
+            "{\"id\":3,\"current\":%.1f,\"temperature\":%.1f}"
+          "]"
+        "}"
+      "}\r\n",
+      msgId,
+      sensorData[0].current, sensorData[0].temperature,
+      sensorData[1].current, sensorData[1].temperature,
+      sensorData[2].current, sensorData[2].temperature);
+  } else {
+    /* Error response */
+    COMMS_SendErrorResponse(msgId, "status", "get_all_sensors",
+                          "Failed to retrieve sensor data");
+    return;
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+ * @brief Send response for clear alarm command
+ * @param msgId Original message ID
+ * @param lightId Light source ID
+ * @param status Operation status
+ * @retval None
+ */
+static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL_Status status) {
+  int length;
+
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"alarm\","
+        "\"action\":\"clear\","
+        "\"data\":{"
+          "\"status\":\"ok\","
+          "\"message\":\"Alarm cleared for light %u\""
+        "}"
+      "}\r\n",
+      msgId, lightId);
+  } else {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"alarm\","
+        "\"action\":\"clear\","
+        "\"data\":{"
+          "\"status\":\"error\","
+          "\"message\":\"Failed to clear alarm for light %u\""
+        "}"
+      "}\r\n",
+      msgId, lightId);
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+ * @brief Send a generic error response
+ * @param msgId Original message ID
+ * @param topic Message topic
+ * @param action Message action
+ * @param message Error message
+ * @retval None
+ */
+static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const char* action, const char* message) {
+  int length = snprintf(txBuffer, TX_BUFFER_SIZE,
+    "{"
+      "\"type\":\"resp\","
+      "\"id\":\"%s\","
+      "\"topic\":\"%s\","
+      "\"action\":\"%s\","
+      "\"data\":{"
+        "\"status\":\"error\","
+        "\"message\":\"%s\""
+      "}"
+    "}\r\n",
+    msgId, topic, action, message);
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
   * @brief  Process a received JSON command string
   * @param  jsonStr: JSON command string
   * @retval None
@@ -458,12 +623,112 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
         COMMS_SendSetAllLightsResponse(msgId, status);
       }
     }
+    /* Check for status topic commands */
+    else if (topic_len == 6 && strncmp(topic, "status", 6) == 0) {
+      if (action_len == 11 && strncmp(action, "get_sensors", 11) == 0) {
+        /* Get sensor data for a specific light */
+        uint8_t lightId = 0;
+        token = root->u.first_child;
+        while (token != NULL) {
+          if (token->token_name != NULL &&
+              strncmp(token->token_name, "data", token->token_name_len) == 0 &&
+              token->type == LWJSON_TYPE_OBJECT) {
+
+            /* Search for "id" inside data */
+            const lwjson_token_t* dataToken = token->u.first_child;
+            while (dataToken != NULL) {
+              if (dataToken->token_name != NULL &&
+                  strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
+                  dataToken->type == LWJSON_TYPE_NUM_INT) {
+
+                lightId = (uint8_t)dataToken->u.num_int;
+                break;
+              }
+              dataToken = dataToken->next;
+            }
+            break;
+          }
+          token = token->next;
+        }
+
+        if (lightId >= 1 && lightId <= 3) {
+          /* Send sensor data response for specific light */
+          COMMS_SendSensorDataResponse(msgId, lightId);
+        } else {
+          /* Invalid light ID */
+          COMMS_SendErrorResponse(msgId, "status", "get_sensors", "Invalid light ID");
+        }
+      }
+      else if (action_len == 15 && strncmp(action, "get_all_sensors", 15) == 0) {
+        /* Get sensor data for all lights */
+        COMMS_SendAllSensorDataResponse(msgId);
+      }
+    }
+    /* Check for alarm topic commands */
+    else if (topic_len == 5 && strncmp(topic, "alarm", 5) == 0) {
+      if (action_len == 5 && strncmp(action, "clear", 5) == 0) {
+        /* Clear alarm for specific light(s) */
+        uint8_t lightId = 0;
+        bool singleLight = false;
+        bool validCommand = false;
+
+        /* Find data object */
+        token = root->u.first_child;
+        while (token != NULL) {
+          if (token->token_name != NULL &&
+              strncmp(token->token_name, "data", token->token_name_len) == 0 &&
+              token->type == LWJSON_TYPE_OBJECT) {
+
+            /* Check for single light ID or array of light IDs */
+            const lwjson_token_t* dataToken = token->u.first_child;
+            while (dataToken != NULL) {
+              if (dataToken->token_name != NULL) {
+                /* Single light ID */
+                if (strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
+                    dataToken->type == LWJSON_TYPE_NUM_INT) {
+                  lightId = (uint8_t)dataToken->u.num_int;
+                  singleLight = true;
+                  validCommand = true;
+                  break;
+                }
+                /* Array of light IDs - only handle first one for this implementation */
+                else if (strncmp(dataToken->token_name, "lights", dataToken->token_name_len) == 0 &&
+                         dataToken->type == LWJSON_TYPE_ARRAY) {
+                  const lwjson_token_t* arrayToken = dataToken->u.first_child;
+                  if (arrayToken != NULL && arrayToken->type == LWJSON_TYPE_NUM_INT) {
+                    lightId = (uint8_t)arrayToken->u.num_int;
+                    singleLight = true;
+                    validCommand = true;
+                    break;
+                  }
+                }
+              }
+              dataToken = dataToken->next;
+            }
+            break;
+          }
+          token = token->next;
+        }
+
+        if (validCommand && singleLight) {
+          /* Clear alarm for a specific light */
+          VAL_Status status = SYS_Coordinator_ClearLightAlarm(lightId);
+          COMMS_SendAlarmClearResponse(msgId, lightId, status);
+        } else {
+          /* Invalid command */
+          COMMS_SendErrorResponse(msgId, "alarm", "clear", "Invalid parameters");
+        }
+      }
+      else if (action_len == 6 && strncmp(action, "status", 6) == 0) {
+        /* TODO: Implement alarm status query */
+        COMMS_SendErrorResponse(msgId, "alarm", "status", "Not implemented");
+      }
+    }
   }
 
   /* Cleanup parser */
   lwjson_free(&jsonParser);
 }
-
 /**
   * @brief  Serial RX callback - Called for each byte received
   * @param  byte: Received byte

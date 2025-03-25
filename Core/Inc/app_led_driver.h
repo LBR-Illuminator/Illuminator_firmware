@@ -17,6 +17,12 @@ extern "C" {
 #include <stdint.h>
 #include "val_status.h"
 
+/* Exported types ------------------------------------------------------------*/
+typedef struct {
+	float current;        /* Current in mA */
+	float temperature;    /* Temperature in Celsius */
+} LightSensorData_t;
+
 /* Exported functions prototypes ---------------------------------------------*/
 VAL_Status LED_Driver_Init(void);
 VAL_Status LED_Driver_SetIntensity(uint8_t lightId, uint8_t intensity);
@@ -37,6 +43,21 @@ VAL_Status LED_Driver_GetIntensity(uint8_t lightId, uint8_t* intensity);
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
 VAL_Status LED_Driver_GetAllIntensities(uint8_t* intensities);
+
+/**
+ * @brief Get sensor readings for a specific light source
+ * @param lightId Light source ID (1-3)
+ * @param sensorData Pointer to store the retrieved sensor data
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status LED_Driver_GetSensorData(uint8_t lightId, LightSensorData_t* sensorData);
+
+/**
+ * @brief Get sensor readings for all light sources
+ * @param sensorData Array to store the retrieved sensor data (must be size 3)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status LED_Driver_GetAllSensorData(LightSensorData_t* sensorData);
 
 #ifdef __cplusplus
 }

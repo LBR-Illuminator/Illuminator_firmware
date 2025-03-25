@@ -30,6 +30,14 @@ static TaskHandle_t sysCoordinatorTaskHandle = NULL;
 /* Private light intensity state storage */
 static uint8_t current_intensities[3] = {0, 0, 0};
 
+/* Private sensor data storage */
+static LightSensorData_t current_sensor_data[3] = {
+  {0.0f, 25.0f},  /* Light 1: 0 mA, 25°C */
+  {0.0f, 25.0f},  /* Light 2: 0 mA, 25°C */
+  {0.0f, 25.0f}   /* Light 3: 0 mA, 25°C */
+};
+
+
 /* Private function prototypes -----------------------------------------------*/
 static void SYS_Coordinator_Task(void const *argument);
 
@@ -125,6 +133,66 @@ VAL_Status SYS_Coordinator_SetAllLightIntensities(uint8_t* intensities) {
   return status;
 }
 
+/**
+ * @brief Get sensor data for a specific light source
+ * @param lightId Light source ID (1-3)
+ * @param sensorData Pointer to store sensor readings
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetLightSensorData(uint8_t lightId, LightSensorData_t* sensorData) {
+  /* Validate input parameters */
+  if (lightId < 1 || lightId > 3 || sensorData == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Get sensor data from LED driver */
+  VAL_Status status = LED_Driver_GetSensorData(lightId, sensorData);
+
+  /* If successful, update our cached copy */
+  if (status == VAL_OK) {
+    current_sensor_data[lightId - 1] = *sensorData;
+  }
+
+  return status;
+}
+
+/**
+ * @brief Get sensor data for all light sources
+ * @param sensorData Array to store sensor readings (must be size 3)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensorData) {
+  /* Validate input parameter */
+  if (sensorData == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Get all sensor data from LED driver */
+  VAL_Status status = LED_Driver_GetAllSensorData(sensorData);
+
+  /* If successful, update our cached copy */
+  if (status == VAL_OK) {
+    memcpy(current_sensor_data, sensorData, 3 * sizeof(LightSensorData_t));
+  }
+
+  return status;
+}
+
+/**
+ * @brief Clear alarm for a specific light source
+ * @param lightId Light source ID (1-3)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_ClearLightAlarm(uint8_t lightId) {
+  /* Validate light ID */
+  if (lightId < 1 || lightId > 3) {
+    return VAL_ERROR;
+  }
+
+  /* Attempt to clear the alarm in the LED driver */
+  return LED_Driver_ClearAlarm(lightId);
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -138,8 +206,11 @@ static void SYS_Coordinator_Task(void const *argument) {
 
     /* Task main loop */
     for (;;) {
-        /* Synchronize all light intensities at once */
+        /* Synchronize all light intensities */
         LED_Driver_GetAllIntensities(current_intensities);
+
+        /* Synchronize all sensor data */
+        LED_Driver_GetAllSensorData(current_sensor_data);
 
         osDelay(100); /* Update every 100 milliseconds */
     }
