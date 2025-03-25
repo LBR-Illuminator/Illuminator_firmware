@@ -9,6 +9,7 @@ RM := rm -rf
 
 # All of the sources participating in the build are defined here
 -include sources.mk
+-include Middlewares/Third_Party/lwjson/src/lwjson/subdir.mk
 -include Middlewares/Third_Party/NimaLTD_Driver/EE/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/subdir.mk
@@ -68,7 +69,7 @@ main-build: Wiseled_LBR_Illuminator.elf secondary-outputs
 
 # Tool invocations
 Wiseled_LBR_Illuminator.elf Wiseled_LBR_Illuminator.map: $(OBJS) $(USER_OBJS) C:\Users\lbrav\Documents\Electronics\proyectos\Wiseled_LBR\Illuminator\Firmware\STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Wiseled_LBR_Illuminator.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\lbrav\Documents\Electronics\proyectos\Wiseled_LBR\Illuminator\Firmware\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Wiseled_LBR_Illuminator.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "Wiseled_LBR_Illuminator.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\lbrav\Documents\Electronics\proyectos\Wiseled_LBR\Illuminator\Firmware\STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Wiseled_LBR_Illuminator.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

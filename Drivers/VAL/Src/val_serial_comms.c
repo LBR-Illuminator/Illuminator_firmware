@@ -120,8 +120,26 @@ uint8_t VAL_Serial_IsBusy(void) {
   * @retval None
   */
 static void StartReceive(void) {
-  /* Start UART reception in interrupt mode for a single byte */
-  HAL_UART_Receive_IT(&huart1, rxBuffer, 1);
+  /* Detailed error checking for receive initialization */
+  HAL_StatusTypeDef status = HAL_UART_Receive_IT(&huart1, rxBuffer, 1);
+
+  switch(status) {
+    case HAL_OK:
+      //VAL_Serial_Printf("StartReceive: Interrupt receive started successfully\r\n");
+      break;
+    case HAL_ERROR:
+      VAL_Serial_Printf("StartReceive: HAL_ERROR - Receive initialization failed\r\n");
+      break;
+    case HAL_BUSY:
+      VAL_Serial_Printf("StartReceive: HAL_BUSY - UART is busy\r\n");
+      break;
+    case HAL_TIMEOUT:
+      VAL_Serial_Printf("StartReceive: HAL_TIMEOUT - Receive timeout\r\n");
+      break;
+    default:
+      VAL_Serial_Printf("StartReceive: Unknown status %d\r\n", status);
+      break;
+  }
 }
 
 /**

@@ -20,8 +20,8 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "val.h"
-// #include "app_led_driver.h"
-// #include "app_comms_handler.h"
+#include "app_comms_handler.h"
+#include "app_sys_coordinator.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -46,7 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static TaskHandle_t initTaskHandle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -54,6 +54,7 @@ void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 static void System_Init(void);
 static void System_Error(void);
+static void Init_Task(void *argument);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -72,10 +73,35 @@ static void System_Init(void) {
     System_Error();
   }
 
-  /* Send initialization message */
-  VAL_Serial_Printf("Wiseled_LBR System initializing...\r\n");
+  /* Create initialization task to complete initialization after FreeRTOS starts */
+  osThreadDef(InitTask, Init_Task, osPriorityHigh, 0, 256);
+  initTaskHandle = osThreadCreate(osThread(InitTask), NULL);
 
-  /* Initialize application layer modules after FreeRTOS is started in MX_FREERTOS_Init */
+  if (initTaskHandle == NULL) {
+    System_Error();
+  }
+}
+
+/**
+  * @brief Application initialization task
+  * @param  argument: Not used
+  * @retval None
+  */
+static void Init_Task(void *argument) {
+  VAL_Status status;
+
+  /* Initialize communications handler */
+  status = COMMS_Handler_Init();
+  if (status != VAL_OK) {
+    System_Error();
+  }
+
+  /* Send system ready message */
+  VAL_Serial_Printf("Wiseled_LBR System ready!\r\n");
+
+  /* Delete the init task as it's no longer needed */
+  vTaskDelete(NULL);
+
 }
 
 /**
@@ -90,6 +116,7 @@ static void System_Error(void) {
     HAL_Delay(100);
   }
 }
+
 /**
   * @brief  Period elapsed callback in non blocking mode
   * @note   This function is called  when TIM7 interrupt took place, inside
@@ -125,7 +152,7 @@ void Error_Handler(void)
   {
   }
   /* USER CODE END Error_Handler_Debug */
-}/* USER CODE BEGIN Header */
+}
 
 /* USER CODE END 0 */
 
@@ -135,7 +162,6 @@ void Error_Handler(void)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -147,9 +173,6 @@ int main(void)
 
   /* Initialize all configured peripherals through VAL */
   System_Init();
-
-  /* Send Hello World message*/
-  VAL_Serial_Printf("Hello Lisandro 3...\r\n");
 
   /* USER CODE END 2 */
 

@@ -1,3 +1,5 @@
+"./Core/Src/app_comms_handler.o"
+"./Core/Src/app_sys_coordinator.o"
 "./Core/Src/freertos.o"
 "./Core/Src/main.o"
 "./Core/Startup/startup_stm32l432kcux.o"
@@ -51,3 +53,6 @@
 "./Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.o"
 "./Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.o"
 "./Middlewares/Third_Party/NimaLTD_Driver/EE/ee.o"
+"./Middlewares/Third_Party/lwjson/src/lwjson/lwjson.o"
+"./Middlewares/Third_Party/lwjson/src/lwjson/lwjson_debug.o"
+"./Middlewares/Third_Party/lwjson/src/lwjson/lwjson_stream.o"

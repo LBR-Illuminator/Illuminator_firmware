@@ -47,11 +47,11 @@ static inline VAL_Status VAL_Init(void) {
     return status;
   }
   
-  /* Initialize serial communication */
-  status = VAL_Serial_Init(NULL);
-  if (status != VAL_OK) {
-    return status;
-  }
+//  /* Initialize serial communication */
+//  status = VAL_Serial_Init(NULL);
+//  if (status != VAL_OK) {
+//    return status;
+//  }
   
   /* Initialize PWM */
   status = VAL_PWM_Init();
@@ -83,10 +83,10 @@ static inline VAL_Status VAL_DeInit(void) {
   VAL_Status moduleStatus;
   
   /* De-initialize data storage */
-  moduleStatus = VAL_DataStore_DeInit();
-  if (moduleStatus != VAL_OK) {
-    status = moduleStatus;
-  }
+//  moduleStatus = VAL_DataStore_DeInit();
+//  if (moduleStatus != VAL_OK) {
+//    status = moduleStatus;
+//  }
   
   /* De-initialize analog inputs */
   moduleStatus = VAL_Analog_DeInit();
