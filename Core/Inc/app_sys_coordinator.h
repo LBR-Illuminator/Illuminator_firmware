@@ -20,10 +20,29 @@ extern "C" {
 #include "FreeRTOS.h"
 #include "queue.h"
 
+/* Exported types ------------------------------------------------------------*/
+typedef struct {
+    uint8_t lightId;    // Light source ID (1-3)
+    uint8_t intensity;  // Current intensity (0-100)
+} LightStatus_t;
+
 /* Exported functions prototypes ---------------------------------------------*/
 VAL_Status SYS_Coordinator_Init(void);
-// QueueHandle_t getSystemCoordinatorCommandQueue(void);
-// QueueHandle_t getSystemCoordinatorResponseQueue(void);
+
+/**
+ * @brief Get the current intensity of a specific light source
+ * @param lightId Light source ID (1-3)
+ * @param intensity Pointer to store the retrieved intensity
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetLightIntensity(uint8_t lightId, uint8_t* intensity);
+
+/**
+ * @brief Get the current intensities of all light sources
+ * @param intensities Array to store the retrieved intensities
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetAllLightIntensities(uint8_t* intensities);
 
 #ifdef __cplusplus
 }
