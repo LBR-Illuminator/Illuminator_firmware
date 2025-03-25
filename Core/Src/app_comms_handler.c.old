@@ -1,0 +1,672 @@
+/**
+  ******************************************************************************
+  * @file    app_comms_handler.c
+  * @brief   Application layer communications handler module
+  ******************************************************************************
+  * @attention
+  *
+  * This module implements the communications handler task for processing
+  * JSON protocol messages as specified in REQ-COMM-001.
+  *
+  ******************************************************************************
+  */
+
+/* Includes ------------------------------------------------------------------*/
+#include "app_comms_handler.h"
+#include "app_sys_coordinator.h"
+#include "val.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "cmsis_os.h"
+#include "lwjson.h" /* JSON parser library */
+#include <string.h>
+#include <stdio.h>
+
+/* Private define ------------------------------------------------------------*/
+#define COMMS_HANDLER_STACK_SIZE   384
+#define COMMS_HANDLER_PRIORITY     osPriorityNormal
+
+#define RX_BUFFER_SIZE             256
+#define TX_BUFFER_SIZE             512
+
+/* Message types */
+#define MSG_TYPE_CMD               "cmd"
+#define MSG_TYPE_RESP              "resp"
+#define MSG_TYPE_EVENT             "event"
+
+/* Private variables ---------------------------------------------------------*/
+static TaskHandle_t commsHandlerTaskHandle = NULL;
+static char rxBuffer[RX_BUFFER_SIZE];
+static char txBuffer[TX_BUFFER_SIZE];
+static uint16_t rxIndex = 0;
+
+static lwjson_t jsonParser;
+static lwjson_token_t jsonTokens[32];
+
+/* Private function prototypes -----------------------------------------------*/
+static void COMMS_Handler_Task(void const *argument);
+static void COMMS_ParseJsonCommand(const char* jsonStr);
+static void COMMS_SerialRxCallback(uint8_t byte);
+static void COMMS_ProcessResponseQueue(void *pvParameters);
+static void COMMS_FormatJsonResponse(CommResponseMsg_t* responseMsg, char* buffer, int maxSize);
+
+/* Public functions ----------------------------------------------------------*/
+
+/**
+  * @brief  Initialize the communications handler
+  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+  */
+VAL_Status COMMS_Handler_Init(void) {
+  /* Initialize JSON parser */
+  lwjson_init(&jsonParser, jsonTokens, LWJSON_ARRAYSIZE(jsonTokens));
+
+  /* Initialize serial with callback */
+  VAL_Status status = VAL_Serial_Init(COMMS_SerialRxCallback);
+  if (status != VAL_OK) {
+    return status;
+  }
+
+  /* Create response processing task */
+  osThreadDef(RespProcessTask, COMMS_ProcessResponseQueue, osPriorityNormal, 0, 256);
+  osThreadCreate(osThread(RespProcessTask), NULL);
+
+  /* Create communications handler task */
+  osThreadDef(COMSHandlerTask, COMMS_Handler_Task, COMMS_HANDLER_PRIORITY, 0, COMMS_HANDLER_STACK_SIZE);
+  commsHandlerTaskHandle = osThreadCreate(osThread(COMSHandlerTask), NULL);
+
+  if (commsHandlerTaskHandle == NULL) {
+    return VAL_ERROR;
+  }
+
+  return VAL_OK;
+}
+
+/**
+  * @brief  Send a response message over serial
+  * @param  responseMsg: Response message structure
+  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+  */
+VAL_Status COMMS_Handler_SendResponse(const CommResponseMsg_t* responseMsg) {
+  int length;
+
+  /* Format based on response type */
+  if (responseMsg->responseType == COMM_RESP_STANDARD) {
+    /* Format standard response */
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"%s\","
+        "\"action\":\"%s\","
+        "\"data\":{"
+          "\"status\":\"%s\","
+          "\"message\":\"%s\""
+        "}"
+      "}\n",
+      responseMsg->msgId,
+      responseMsg->topic,
+      responseMsg->action,
+      responseMsg->status,
+      responseMsg->message);
+  }
+  /* Use custom JSON payload */
+  else if (responseMsg->responseType == COMM_RESP_CUSTOM) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE, "%s\n", responseMsg->customJson);
+  }
+  /* Format other response types */
+  else {
+    COMMS_FormatJsonResponse((CommResponseMsg_t*)responseMsg, txBuffer, TX_BUFFER_SIZE);
+    length = strlen(txBuffer);
+
+    /* Ensure we have the newline terminator */
+    if (length > 0 && txBuffer[length-1] != '\n') {
+      txBuffer[length] = '\n';
+      length++;
+      txBuffer[length] = '\0';
+    }
+  }
+
+  /* Send response */
+  return VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+  * @brief  Send alarm event notification
+  * @param  lightId: Light ID that triggered the alarm
+  * @param  errorType: Type of error
+  * @param  value: Measured value that caused the error
+  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+  */
+VAL_Status COMMS_Handler_SendAlarmEvent(uint8_t lightId, ErrorType_t errorType, float value) {
+  const char* errorCodeStr;
+  char sourceStr[16];
+  char eventId[16];
+
+  /* Generate event ID */
+  snprintf(eventId, sizeof(eventId), "evt-%lu", HAL_GetTick());
+
+  /* Convert error type to string */
+  switch (errorType) {
+    case ERROR_OVER_CURRENT:
+      errorCodeStr = "over_current";
+      break;
+    case ERROR_OVER_TEMPERATURE:
+      errorCodeStr = "over_temperature";
+      break;
+    case ERROR_SYSTEM:
+      errorCodeStr = "system_error";
+      break;
+    default:
+      errorCodeStr = "unknown";
+      break;
+  }
+
+  /* Create source string */
+  sprintf(sourceStr, "light_%d", lightId);
+
+  /* Format event message */
+  int length = snprintf(txBuffer, TX_BUFFER_SIZE,
+    "{"
+      "\"type\":\"event\","
+      "\"id\":\"%s\","
+      "\"topic\":\"alarm\","
+      "\"action\":\"triggered\","
+      "\"data\":{"
+        "\"timestamp\":\"%lu\","
+        "\"code\":\"%s\","
+        "\"source\":\"%s\","
+        "\"value\":%.2f,"
+        "\"status\":\"disabled\""
+      "}"
+    "}\n",
+    eventId, HAL_GetTick(), errorCodeStr, sourceStr, value);
+
+  /* Send event message */
+  return VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  Communications handler task
+  * @param  argument: Task argument
+  * @retval None
+  */
+static void COMMS_Handler_Task(void const *argument) {
+  /* Task main loop */
+  for (;;) {
+    /* Wait for events, task is primarily driven by the Serial RX callback */
+    osDelay(100);
+  }
+}
+
+/**
+  * @brief  Process the response queue
+  * @param  pvParameters: Task parameters
+  * @retval None
+  */
+static void COMMS_ProcessResponseQueue(void *pvParameters) {
+  CommResponseMsg_t responseMsg;
+
+  for (;;) {
+    /* Wait for response message from system coordinator */
+    if (xQueueReceive(getSystemCoordinatorResponseQueue(), &responseMsg, portMAX_DELAY) == pdTRUE) {
+      /* Send response */
+      COMMS_Handler_SendResponse(&responseMsg);
+    }
+  }
+}
+
+/**
+  * @brief  Parse a JSON command and forward to system coordinator
+  * @param  jsonStr: JSON command string
+  * @retval None
+  */
+static void COMMS_ParseJsonCommand(const char* jsonStr) {
+  lwjson_token_t* tokens;
+  const lwjson_token_t* token;
+  const lwjson_token_t* dataToken;
+  CommCommandMsg_t cmdMsg;
+
+  /* Initialize command message structure */
+  memset(&cmdMsg, 0, sizeof(CommCommandMsg_t));
+
+  /* Parse JSON message */
+  lwjson_parse(&jsonParser, jsonStr);
+  tokens = lwjson_get_tokens(&jsonParser);
+
+  /* Get message type */
+  if ((token = lwjson_find_key(tokens, "type")) != NULL &&
+      token->type == LWJSON_TYPE_STRING) {
+    const char* typeStr = lwjson_get_val_string(token);
+    /* Only process command messages */
+    if (strcmp(typeStr, MSG_TYPE_CMD) != 0) {
+      lwjson_free(&jsonParser);
+      return;
+    }
+  } else {
+    lwjson_free(&jsonParser);
+    return;
+  }
+
+  /* Get message ID */
+  if ((token = lwjson_find_key(tokens, "id")) != NULL &&
+      token->type == LWJSON_TYPE_STRING) {
+    strncpy(cmdMsg.msgId, lwjson_get_val_string(token), COMM_MAX_ID_LEN - 1);
+  } else {
+    strcpy(cmdMsg.msgId, "unknown");
+  }
+
+  /* Get topic */
+  if ((token = lwjson_find_key(tokens, "topic")) != NULL &&
+      token->type == LWJSON_TYPE_STRING) {
+    strncpy(cmdMsg.topic, lwjson_get_val_string(token), COMM_MAX_TOPIC_LEN - 1);
+  } else {
+    lwjson_free(&jsonParser);
+    return;
+  }
+
+  /* Get action */
+  if ((token = lwjson_find_key(tokens, "action")) != NULL &&
+      token->type == LWJSON_TYPE_STRING) {
+    strncpy(cmdMsg.action, lwjson_get_val_string(token), COMM_MAX_ACTION_LEN - 1);
+  } else {
+    lwjson_free(&jsonParser);
+    return;
+  }
+
+  /* Get data object */
+  dataToken = lwjson_find_key(tokens, "data");
+  if (dataToken == NULL || dataToken->type != LWJSON_TYPE_OBJECT) {
+    lwjson_free(&jsonParser);
+    return;
+  }
+
+  /* Extract parameters based on topic and action */
+  if (strcmp(cmdMsg.topic, "light") == 0) {
+    /* Light command parameters */
+    if (strcmp(cmdMsg.action, "set") == 0) {
+      /* Extract light ID and intensity */
+      const lwjson_token_t* idToken = lwjson_find_key(dataToken, "id");
+      const lwjson_token_t* intensityToken = lwjson_find_key(dataToken, "intensity");
+
+      if (idToken != NULL && idToken->type == LWJSON_TYPE_NUM_INT) {
+        cmdMsg.params.light.id = (uint8_t)lwjson_get_val_int(idToken);
+      }
+
+      if (intensityToken != NULL && intensityToken->type == LWJSON_TYPE_NUM_INT) {
+        cmdMsg.params.light.intensity = (uint8_t)lwjson_get_val_int(intensityToken);
+      }
+    }
+    else if (strcmp(cmdMsg.action, "set_all") == 0) {
+      /* Extract intensity array */
+      const lwjson_token_t* intensitiesToken = lwjson_find_key(dataToken, "intensities");
+
+      if (intensitiesToken != NULL && intensitiesToken->type == LWJSON_TYPE_ARRAY) {
+        const lwjson_token_t* element = lwjson_array_get_first_element(intensitiesToken);
+        uint8_t index = 0;
+
+        while (element != NULL && index < 3) {
+          if (element->type == LWJSON_TYPE_NUM_INT) {
+            cmdMsg.params.light.intensities[index] = (uint8_t)lwjson_get_val_int(element);
+          }
+          element = lwjson_array_get_next_element(element);
+          index++;
+        }
+      }
+    }
+    else if (strcmp(cmdMsg.action, "get") == 0) {
+      /* Extract light ID */
+      const lwjson_token_t* idToken = lwjson_find_key(dataToken, "id");
+
+      if (idToken != NULL && idToken->type == LWJSON_TYPE_NUM_INT) {
+        cmdMsg.params.light.id = (uint8_t)lwjson_get_val_int(idToken);
+      }
+    }
+    /* No parameters needed for get_all */
+  }
+  else if (strcmp(cmdMsg.topic, "status") == 0) {
+    /* Status command parameters */
+    if (strcmp(cmdMsg.action, "get_sensors") == 0) {
+      /* Extract light ID */
+      const lwjson_token_t* idToken = lwjson_find_key(dataToken, "id");
+
+      if (idToken != NULL && idToken->type == LWJSON_TYPE_NUM_INT) {
+        cmdMsg.params.light.id = (uint8_t)lwjson_get_val_int(idToken);
+      }
+    }
+    /* No parameters needed for get_all_sensors */
+  }
+  else if (strcmp(cmdMsg.topic, "system") == 0) {
+    /* System command parameters */
+    if (strcmp(cmdMsg.action, "get_error_log") == 0) {
+      /* Extract count */
+      const lwjson_token_t* countToken = lwjson_find_key(dataToken, "count");
+
+      if (countToken != NULL && countToken->type == LWJSON_TYPE_NUM_INT) {
+        cmdMsg.params.system.count = (uint8_t)lwjson_get_val_int(countToken);
+      } else {
+        cmdMsg.params.system.count = MAX_ERROR_LOG_ENTRIES; /* Default to max entries */
+      }
+    }
+    /* No parameters needed for ping, reset, info, get_error_count, clear_error_log */
+  }
+  else if (strcmp(cmdMsg.topic, "alarm") == 0) {
+    /* Alarm command parameters */
+    if (strcmp(cmdMsg.action, "clear") == 0) {
+      /* Extract light array */
+      const lwjson_token_t* lightsToken = lwjson_find_key(dataToken, "lights");
+
+      if (lightsToken != NULL && lightsToken->type == LWJSON_TYPE_ARRAY) {
+        const lwjson_token_t* element = lwjson_array_get_first_element(lightsToken);
+        uint8_t index = 0;
+
+        while (element != NULL && index < 3) {
+          if (element->type == LWJSON_TYPE_NUM_INT) {
+            cmdMsg.params.alarm.lights[index] = (uint8_t)lwjson_get_val_int(element);
+            index++;
+          }
+          element = lwjson_array_get_next_element(element);
+        }
+
+        cmdMsg.params.alarm.count = index;
+      }
+    }
+    /* No parameters needed for status */
+  }
+
+  /* Forward command to system coordinator */
+  xQueueSend(getSystemCoordinatorCommandQueue(), &cmdMsg, portMAX_DELAY);
+
+  /* Cleanup parser */
+  lwjson_free(&jsonParser);
+}
+
+/**
+  * @brief  Format special response types into JSON
+  * @param  responseMsg: Response message structure
+  * @param  buffer: Output buffer for the JSON string
+  * @param  maxSize: Maximum size of the buffer
+  * @retval None
+  */
+static void COMMS_FormatJsonResponse(CommResponseMsg_t* responseMsg, char* buffer, int maxSize) {
+  int length = 0;
+
+  /* Based on response type */
+  switch (responseMsg->responseType) {
+    case COMM_RESP_LIGHT_INTENSITIES:
+      /* Format light intensities response */
+      length = snprintf(buffer, maxSize,
+        "{"
+          "\"type\":\"resp\","
+          "\"id\":\"%s\","
+          "\"topic\":\"light\","
+          "\"action\":\"%s\","
+          "\"data\":{"
+            "\"status\":\"ok\","
+            "\"intensities\":[%d, %d, %d]"
+          "}"
+        "}",
+        responseMsg->msgId,
+        responseMsg->action,
+        responseMsg->params.light.intensities[0],
+        responseMsg->params.light.intensities[1],
+        responseMsg->params.light.intensities[2]);
+      break;
+
+    case COMM_RESP_SENSOR_DATA:
+      /* Format single sensor data response */
+      length = snprintf(buffer, maxSize,
+        "{"
+          "\"type\":\"resp\","
+          "\"id\":\"%s\","
+          "\"topic\":\"status\","
+          "\"action\":\"%s\","
+          "\"data\":{"
+            "\"status\":\"ok\","
+            "\"sensor\":{"
+              "\"id\":%d,"
+              "\"current\":%.2f,"
+              "\"temperature\":%.2f"
+            "}"
+          "}"
+        "}",
+        responseMsg->msgId,
+        responseMsg->action,
+        responseMsg->params.sensor.id,
+        responseMsg->params.sensor.current,
+        responseMsg->params.sensor.temperature);
+      break;
+
+    case COMM_RESP_ALL_SENSORS:
+      /* Format all sensors response */
+      length = snprintf(buffer, maxSize,
+        "{"
+          "\"type\":\"resp\","
+          "\"id\":\"%s\","
+          "\"topic\":\"status\","
+          "\"action\":\"%s\","
+          "\"data\":{"
+            "\"status\":\"ok\","
+            "\"sensors\":["
+              "{\"id\":%d,\"current\":%.2f,\"temperature\":%.2f},"
+              "{\"id\":%d,\"current\":%.2f,\"temperature\":%.2f},"
+              "{\"id\":%d,\"current\":%.2f,\"temperature\":%.2f}"
+            "]"
+          "}"
+        "}",
+        responseMsg->msgId,
+        responseMsg->action,
+        responseMsg->params.allSensors.id[0],
+        responseMsg->params.allSensors.current[0],
+        responseMsg->params.allSensors.temperature[0],
+        responseMsg->params.allSensors.id[1],
+        responseMsg->params.allSensors.current[1],
+        responseMsg->params.allSensors.temperature[1],
+        responseMsg->params.allSensors.id[2],
+        responseMsg->params.allSensors.current[2],
+        responseMsg->params.allSensors.temperature[2]);
+      break;
+
+    case COMM_RESP_ERROR_COUNT:
+      /* Format error count response */
+      length = snprintf(buffer, maxSize,
+        "{"
+          "\"type\":\"resp\","
+          "\"id\":\"%s\","
+          "\"topic\":\"system\","
+          "\"action\":\"%s\","
+          "\"data\":{"
+            "\"status\":\"ok\","
+            "\"count\":%d"
+          "}"
+        "}",
+        responseMsg->msgId,
+        responseMsg->action,
+        responseMsg->params.system.errorCount);
+      break;
+
+    case COMM_RESP_ERROR_LOG:
+      {
+        /* Format error log response - this is more complex */
+        /* First, write the opening portion */
+        length = snprintf(buffer, maxSize,
+          "{"
+            "\"type\":\"resp\","
+            "\"id\":\"%s\","
+            "\"topic\":\"system\","
+            "\"action\":\"%s\","
+            "\"data\":{"
+              "\"status\":\"ok\","
+              "\"errors\":[",
+          responseMsg->msgId,
+          responseMsg->action);
+
+        /* Add each error entry */
+        for (uint8_t i = 0; i < responseMsg->params.errorLog.count; i++) {
+          ErrorLogEntry_t* entry = &responseMsg->params.errorLog.entries[i];
+          const char* errorTypeStr;
+
+          /* Convert error type to string */
+          switch (entry->errorType) {
+            case ERROR_OVER_CURRENT:
+              errorTypeStr = "over_current";
+              break;
+            case ERROR_OVER_TEMPERATURE:
+              errorTypeStr = "over_temperature";
+              break;
+            case ERROR_SYSTEM:
+              errorTypeStr = "system_error";
+              break;
+            default:
+              errorTypeStr = "unknown";
+              break;
+          }
+
+          /* Add comma separator if not the first item */
+          if (i > 0) {
+            length += snprintf(buffer + length, maxSize - length, ",");
+          }
+
+          /* Add the error entry */
+          length += snprintf(buffer + length, maxSize - length,
+            "{"
+              "\"timestamp\":\"%lu\","
+              "\"code\":\"%s\","
+              "\"source\":\"light_%d\","
+              "\"value\":%.2f,"
+              "\"action\":%d"
+            "}",
+            entry->timestamp,
+            errorTypeStr,
+            entry->lightId,
+            entry->measuredValue,
+            entry->actionTaken);
+        }
+
+        /* Close the JSON structure */
+        length += snprintf(buffer + length, maxSize - length, "]}}");
+      }
+      break;
+
+    case COMM_RESP_ALARM_STATUS:
+      {
+        /* Format alarm status response */
+        length = snprintf(buffer, maxSize,
+          "{"
+            "\"type\":\"resp\","
+            "\"id\":\"%s\","
+            "\"topic\":\"alarm\","
+            "\"action\":\"%s\","
+            "\"data\":{"
+              "\"status\":\"ok\","
+              "\"active_alarms\":[",
+          responseMsg->msgId,
+          responseMsg->action);
+
+        /* Add active alarms */
+        uint8_t alarmCount = 0;
+        StatusLog_t* statusLog = &responseMsg->params.alarmStatus.statusLog;
+
+        for (uint8_t i = 0; i < 3; i++) {
+          if ((statusLog->activeErrors & (1 << i)) != 0) {
+            const char* errorTypeStr;
+
+            /* Convert error type to string */
+            switch (statusLog->errorTypes[i]) {
+              case ERROR_OVER_CURRENT:
+                errorTypeStr = "over_current";
+                break;
+              case ERROR_OVER_TEMPERATURE:
+                errorTypeStr = "over_temperature";
+                break;
+              case ERROR_SYSTEM:
+                errorTypeStr = "system_error";
+                break;
+              default:
+                errorTypeStr = "unknown";
+                break;
+            }
+
+            /* Add comma separator if not the first item */
+            if (alarmCount > 0) {
+              length += snprintf(buffer + length, maxSize - length, ",");
+            }
+
+            /* Add the alarm entry */
+            length += snprintf(buffer + length, maxSize - length,
+              "{"
+                "\"light\":%d,"
+                "\"code\":\"%s\","
+                "\"value\":%.2f,"
+                "\"timestamp\":%lu"
+              "}",
+              i + 1,
+              errorTypeStr,
+              statusLog->errorValues[i],
+              statusLog->errorTimestamps[i]);
+
+            alarmCount++;
+          }
+        }
+
+        /* Close the JSON structure */
+        length += snprintf(buffer + length, maxSize - length, "]}}");
+      }
+      break;
+
+    case COMM_RESP_INFO:
+      /* Format system info response */
+      length = snprintf(buffer, maxSize,
+        "{"
+          "\"type\":\"resp\","
+          "\"id\":\"%s\","
+          "\"topic\":\"system\","
+          "\"action\":\"%s\","
+          "\"data\":{"
+            "\"status\":\"ok\","
+            "\"device\":\"Wiseled_LBR\","
+            "\"version\":\"1.0.0\","
+            "\"lights\":3,"
+            "\"uptime\":%lu"
+          "}"
+        "}",
+        responseMsg->msgId,
+        responseMsg->action,
+        responseMsg->params.system.uptime);
+      break;
+
+    case COMM_RESP_STANDARD:
+    case COMM_RESP_CUSTOM:
+      /* These are handled in the calling function */
+      break;
+  }
+}
+
+/**
+  * @brief  Serial RX callback - Called for each byte received
+  * @param  byte: Received byte
+  * @retval None
+  */
+static void COMMS_SerialRxCallback(uint8_t byte) {
+  /* Add byte to buffer */
+  if (rxIndex < RX_BUFFER_SIZE - 1) {
+    rxBuffer[rxIndex++] = byte;
+  }
+
+  /* Check for end of message */
+  if (byte == '\n' || byte == '\r') {
+    /* Null-terminate the string */
+    rxBuffer[rxIndex] = '\0';
+
+    /* Check if we have a non-empty message */
+    if (rxIndex > 0) {
+      /* Process the received message */
+      COMMS_ParseJsonCommand(rxBuffer);
+    }
+
+    /* Reset index for next message */
+    rxIndex = 0;
+  }
+}

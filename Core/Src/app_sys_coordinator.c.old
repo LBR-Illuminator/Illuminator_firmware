@@ -1,0 +1,563 @@
+/**
+  ******************************************************************************
+  * @file    app_sys_coordinator.c
+  * @brief   Application layer system coordinator module
+  ******************************************************************************
+  * @attention
+  *
+  * This module implements the system coordinator that processes commands
+  * and manages the Wiseled_LBR system.
+  *
+  ******************************************************************************
+  */
+
+/* Includes ------------------------------------------------------------------*/
+#include "app_sys_coordinator.h"
+#include "app_led_driver.h"
+#include "app_logger.h"
+#include "val.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
+#include "cmsis_os.h"
+#include <string.h>
+#include <stdio.h>
+
+/* Private define ------------------------------------------------------------*/
+#define SYS_COORDINATOR_STACK_SIZE    384
+#define SYS_COORDINATOR_PRIORITY      osPriorityNormal
+
+#define COMMAND_QUEUE_SIZE            10
+#define RESPONSE_QUEUE_SIZE           10
+
+/* Status codes */
+#define STATUS_OK                  "ok"
+#define STATUS_ERROR               "error"
+#define STATUS_INVALID_COMMAND     "invalid_command"
+#define STATUS_INVALID_PARAMETER   "invalid_parameter"
+#define STATUS_DEVICE_ERROR        "device_error"
+#define STATUS_ALARM_ACTIVE        "alarm_active"
+
+/* Topics */
+#define TOPIC_LIGHT                "light"
+#define TOPIC_STATUS               "status"
+#define TOPIC_SYSTEM               "system"
+#define TOPIC_ALARM                "alarm"
+
+/* Light actions */
+#define ACTION_LIGHT_SET           "set"
+#define ACTION_LIGHT_SET_ALL       "set_all"
+#define ACTION_LIGHT_GET           "get"
+#define ACTION_LIGHT_GET_ALL       "get_all"
+
+/* Status actions */
+#define ACTION_STATUS_GET_SENSORS  "get_sensors"
+#define ACTION_STATUS_GET_ALL_SENSORS "get_all_sensors"
+
+/* System actions */
+#define ACTION_SYSTEM_PING         "ping"
+#define ACTION_SYSTEM_RESET        "reset"
+#define ACTION_SYSTEM_INFO         "info"
+#define ACTION_SYSTEM_GET_ERROR_COUNT "get_error_count"
+#define ACTION_SYSTEM_GET_ERROR_LOG "get_error_log"
+#define ACTION_SYSTEM_CLEAR_ERROR_LOG "clear_error_log"
+
+/* Alarm actions */
+#define ACTION_ALARM_STATUS        "status"
+#define ACTION_ALARM_CLEAR         "clear"
+#define ACTION_ALARM_TRIGGERED     "triggered"
+
+/* Private variables ---------------------------------------------------------*/
+static TaskHandle_t sysCoordinatorTaskHandle = NULL;
+static QueueHandle_t commandQueue = NULL;
+static QueueHandle_t responseQueue = NULL;
+
+/* Private function prototypes -----------------------------------------------*/
+static void SYS_Coordinator_Task(void const *argument);
+static void ProcessLightCommand(const CommCommandMsg_t* cmdMsg);
+static void ProcessStatusCommand(const CommCommandMsg_t* cmdMsg);
+static void ProcessSystemCommand(const CommCommandMsg_t* cmdMsg);
+static void ProcessAlarmCommand(const CommCommandMsg_t* cmdMsg);
+static void SendStandardResponse(const char* msgId, const char* topic, const char* action,
+                               const char* status, const char* message);
+static void SendLightIntensitiesResponse(const char* msgId, const char* action);
+static void SendSensorDataResponse(const char* msgId, const char* action, uint8_t lightId);
+static void SendAllSensorDataResponse(const char* msgId, const char* action);
+static void SendErrorLogResponse(const char* msgId, const char* action, uint8_t count);
+static void SendAlarmStatusResponse(const char* msgId, const char* action);
+
+/* Public functions ----------------------------------------------------------*/
+
+/**
+  * @brief  Initialize the system coordinator
+  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+  */
+VAL_Status SYS_Coordinator_Init(void) {
+  /* Create command queue */
+  commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommCommandMsg_t));
+  if (commandQueue == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Create response queue */
+  responseQueue = xQueueCreate(RESPONSE_QUEUE_SIZE, sizeof(CommResponseMsg_t));
+  if (responseQueue == NULL) {
+    vQueueDelete(commandQueue);
+    return VAL_ERROR;
+  }
+
+  /* Create system coordinator task */
+  osThreadDef(SysCoordTask, SYS_Coordinator_Task, SYS_COORDINATOR_PRIORITY, 0, SYS_COORDINATOR_STACK_SIZE);
+  sysCoordinatorTaskHandle = osThreadCreate(osThread(SysCoordTask), NULL);
+
+  if (sysCoordinatorTaskHandle == NULL) {
+    vQueueDelete(commandQueue);
+    vQueueDelete(responseQueue);
+    return VAL_ERROR;
+  }
+
+  return VAL_OK;
+}
+
+/**
+  * @brief  Get command queue handle
+  * @retval QueueHandle_t: Command queue handle
+  */
+QueueHandle_t getSystemCoordinatorCommandQueue(void) {
+  return commandQueue;
+}
+
+/**
+  * @brief  Get response queue handle
+  * @retval QueueHandle_t: Response queue handle
+  */
+QueueHandle_t getSystemCoordinatorResponseQueue(void) {
+  return responseQueue;
+}
+
+/* Private functions ---------------------------------------------------------*/
+
+/**
+  * @brief  System coordinator task
+  * @param  argument: Task argument
+  * @retval None
+  */
+static void SYS_Coordinator_Task(void const *argument) {
+  CommCommandMsg_t cmdMsg;
+
+  /* Task main loop */
+  for (;;) {
+    /* Wait for a command message */
+    if (xQueueReceive(commandQueue, &cmdMsg, portMAX_DELAY) == pdTRUE) {
+      /* Process command based on topic */
+      if (strcmp(cmdMsg.topic, TOPIC_LIGHT) == 0) {
+        ProcessLightCommand(&cmdMsg);
+      }
+      else if (strcmp(cmdMsg.topic, TOPIC_STATUS) == 0) {
+        ProcessStatusCommand(&cmdMsg);
+      }
+      else if (strcmp(cmdMsg.topic, TOPIC_SYSTEM) == 0) {
+        ProcessSystemCommand(&cmdMsg);
+      }
+      else if (strcmp(cmdMsg.topic, TOPIC_ALARM) == 0) {
+        ProcessAlarmCommand(&cmdMsg);
+      }
+      else {
+        /* Unknown topic */
+        SendStandardResponse(cmdMsg.msgId, cmdMsg.topic, cmdMsg.action,
+                           STATUS_INVALID_COMMAND, "Unknown topic");
+      }
+    }
+  }
+}
+
+/**
+  * @brief  Process light commands
+  * @param  cmdMsg: Command message
+  * @retval None
+  */
+static void ProcessLightCommand(const CommCommandMsg_t* cmdMsg) {
+  /* Handle light commands */
+  if (strcmp(cmdMsg->action, ACTION_LIGHT_SET) == 0) {
+    /* Set individual light intensity */
+    uint8_t lightId = cmdMsg->params.light.id;
+    uint8_t intensity = cmdMsg->params.light.intensity;
+
+    if (lightId < 1 || lightId > 3 || intensity > 100) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_INVALID_PARAMETER, "Invalid light ID or intensity");
+      return;
+    }
+
+    VAL_Status status = LED_Driver_SetIntensity(lightId, intensity);
+
+    if (status == VAL_OK) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_OK, "Light intensity updated");
+    } else if (status == VAL_ERROR) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_ALARM_ACTIVE, "Light disabled due to active alarm");
+    } else {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_INVALID_PARAMETER, "Invalid light ID");
+    }
+  }
+  else if (strcmp(cmdMsg->action, ACTION_LIGHT_SET_ALL) == 0) {
+    /* Set all light intensities */
+    uint8_t* intensities = cmdMsg->params.light.intensities;
+
+    /* Check if intensities are valid */
+    if (intensities[0] > 100 || intensities[1] > 100 || intensities[2] > 100) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_INVALID_PARAMETER, "Invalid intensity value");
+      return;
+    }
+
+    VAL_Status status = LED_Driver_SetAllIntensities(intensities);
+
+    if (status == VAL_OK) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_OK, "All light intensities updated");
+    } else {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_ERROR, "Failed to set all intensities");
+    }
+  }
+  else if (strcmp(cmdMsg->action, ACTION_LIGHT_GET) == 0) {
+    /* Get individual light intensity */
+    uint8_t lightId = cmdMsg->params.light.id;
+
+    if (lightId < 1 || lightId > 3) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_INVALID_PARAMETER, "Invalid light ID");
+      return;
+    }
+
+    uint8_t intensity;
+    if (VAL_PWM_GetIntensity(lightId, &intensity) == VAL_OK) {
+      /* Format custom response */
+      CommResponseMsg_t responseMsg;
+      memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+      responseMsg.responseType = COMM_RESP_CUSTOM;
+      strncpy(responseMsg.msgId, cmdMsg->msgId, COMM_MAX_ID_LEN - 1);
+
+      /* Set response data */
+      responseMsg.params.light.id = lightId;
+      responseMsg.params.light.intensity = intensity;
+
+      xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+    } else {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_INVALID_PARAMETER, "Invalid light ID");
+    }
+  }
+  else if (strcmp(cmdMsg->action, ACTION_LIGHT_GET_ALL) == 0) {
+    /* Get all light intensities */
+    SendLightIntensitiesResponse(cmdMsg->msgId, cmdMsg->action);
+  }
+  else {
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_INVALID_COMMAND, "Unknown action");
+  }
+}
+
+/**
+  * @brief  Process status commands
+  * @param  cmdMsg: Command message
+  * @retval None
+  */
+static void ProcessStatusCommand(const CommCommandMsg_t* cmdMsg) {
+  if (strcmp(cmdMsg->action, ACTION_STATUS_GET_SENSORS) == 0) {
+    /* Get sensors for a specific light */
+    uint8_t lightId = cmdMsg->params.light.id;
+
+    if (lightId < 1 || lightId > 3) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_INVALID_PARAMETER, "Invalid light ID");
+      return;
+    }
+
+    SendSensorDataResponse(cmdMsg->msgId, cmdMsg->action, lightId);
+  }
+  else if (strcmp(cmdMsg->action, ACTION_STATUS_GET_ALL_SENSORS) == 0) {
+    /* Get all sensor readings */
+    SendAllSensorDataResponse(cmdMsg->msgId, cmdMsg->action);
+  }
+  else {
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_INVALID_COMMAND, "Unknown action");
+  }
+}
+
+/**
+  * @brief  Process system commands
+  * @param  cmdMsg: Command message
+  * @retval None
+  */
+static void ProcessSystemCommand(const CommCommandMsg_t* cmdMsg) {
+  if (strcmp(cmdMsg->action, ACTION_SYSTEM_PING) == 0) {
+    /* Ping command - respond with OK */
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_OK, "Pong");
+  }
+  else if (strcmp(cmdMsg->action, ACTION_SYSTEM_RESET) == 0) {
+    /* Reset device after sending response */
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_OK, "Resetting device");
+
+    /* Allow time for response to be sent */
+    osDelay(100);
+
+    /* Reset the device */
+    NVIC_SystemReset();
+  }
+  else if (strcmp(cmdMsg->action, ACTION_SYSTEM_INFO) == 0) {
+    /* Send system information response */
+    CommResponseMsg_t responseMsg;
+    memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+    responseMsg.responseType = COMM_RESP_INFO;
+    strncpy(responseMsg.msgId, cmdMsg->msgId, COMM_MAX_ID_LEN - 1);
+    strncpy(responseMsg.topic, cmdMsg->topic, COMM_MAX_TOPIC_LEN - 1);
+    strncpy(responseMsg.action, cmdMsg->action, COMM_MAX_ACTION_LEN - 1);
+
+    /* Set system info data */
+    responseMsg.params.system.uptime = HAL_GetTick() / 1000;
+
+    xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+  }
+  else if (strcmp(cmdMsg->action, ACTION_SYSTEM_GET_ERROR_COUNT) == 0) {
+    /* Get error count */
+    uint16_t errorCount = VAL_DataStore_GetErrorCount();
+
+    CommResponseMsg_t responseMsg;
+    memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+    responseMsg.responseType = COMM_RESP_ERROR_COUNT;
+    strncpy(responseMsg.msgId, cmdMsg->msgId, COMM_MAX_ID_LEN - 1);
+    strncpy(responseMsg.topic, cmdMsg->topic, COMM_MAX_TOPIC_LEN - 1);
+    strncpy(responseMsg.action, cmdMsg->action, COMM_MAX_ACTION_LEN - 1);
+
+    /* Set error count data */
+    responseMsg.params.system.errorCount = errorCount;
+
+    xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+  }
+  else if (strcmp(cmdMsg->action, ACTION_SYSTEM_GET_ERROR_LOG) == 0) {
+    /* Get error log */
+    uint8_t count = cmdMsg->params.system.count;
+    SendErrorLogResponse(cmdMsg->msgId, cmdMsg->action, count);
+  }
+  else if (strcmp(cmdMsg->action, ACTION_SYSTEM_CLEAR_ERROR_LOG) == 0) {
+    /* Clear error log */
+    VAL_Status status = VAL_DataStore_ClearErrorLogs();
+
+    if (status == VAL_OK) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_OK, "Error log cleared");
+    } else {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_DEVICE_ERROR, "Failed to clear error log");
+    }
+  }
+  else {
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_INVALID_COMMAND, "Unknown action");
+  }
+}
+
+/**
+  * @brief  Process alarm commands
+  * @param  cmdMsg: Command message
+  * @retval None
+  */
+static void ProcessAlarmCommand(const CommCommandMsg_t* cmdMsg) {
+  if (strcmp(cmdMsg->action, ACTION_ALARM_STATUS) == 0) {
+    /* Get alarm status */
+    SendAlarmStatusResponse(cmdMsg->msgId, cmdMsg->action);
+  }
+  else if (strcmp(cmdMsg->action, ACTION_ALARM_CLEAR) == 0) {
+    /* Clear alarms for specific lights */
+    uint8_t* lights = cmdMsg->params.alarm.lights;
+    uint8_t count = cmdMsg->params.alarm.count;
+
+    /* Check if light IDs are valid */
+    for (uint8_t i = 0; i < count; i++) {
+      if (lights[i] < 1 || lights[i] > 3) {
+        SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                           STATUS_INVALID_PARAMETER, "Invalid light ID");
+        return;
+      }
+    }
+
+    /* Try to clear alarms for each light */
+    VAL_Status status = VAL_OK;
+    for (uint8_t i = 0; i < count; i++) {
+      if (LED_Driver_ClearAlarm(lights[i]) != VAL_OK) {
+        status = VAL_ERROR;
+      }
+    }
+
+    if (status == VAL_OK) {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_OK, "Alarms cleared");
+    } else {
+      SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                         STATUS_ERROR, "Failed to clear some alarms");
+    }
+  }
+  else {
+    SendStandardResponse(cmdMsg->msgId, cmdMsg->topic, cmdMsg->action,
+                       STATUS_INVALID_COMMAND, "Unknown action");
+  }
+}
+
+/**
+  * @brief  Send a standard response with status and message
+  * @param  msgId: Message ID
+  * @param  topic: Message topic
+  * @param  action: Message action
+  * @param  status: Status string
+  * @param  message: Message string
+  * @retval None
+  */
+static void SendStandardResponse(const char* msgId, const char* topic, const char* action,
+                               const char* status, const char* message) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_STANDARD;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, topic, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+  strncpy(responseMsg.status, status, COMM_MAX_MSG_LEN - 1);
+  strncpy(responseMsg.message, message, COMM_MAX_MSG_LEN - 1);
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
+
+/**
+  * @brief  Send light intensities response
+  * @param  msgId: Message ID
+  * @param  action: Message action
+  * @retval None
+  */
+static void SendLightIntensitiesResponse(const char* msgId, const char* action) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_LIGHT_INTENSITIES;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, TOPIC_LIGHT, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+
+  /* Get all intensities */
+  for (uint8_t i = 0; i < 3; i++) {
+    VAL_PWM_GetIntensity(i + 1, &responseMsg.params.light.intensities[i]);
+  }
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
+
+/**
+  * @brief  Send sensor data response for a specific light
+  * @param  msgId: Message ID
+  * @param  action: Message action
+  * @param  lightId: Light ID
+  * @retval None
+  */
+static void SendSensorDataResponse(const char* msgId, const char* action, uint8_t lightId) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_SENSOR_DATA;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, TOPIC_STATUS, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+
+  /* Set sensor data */
+  responseMsg.params.sensor.id = lightId;
+  VAL_Analog_GetCurrent(lightId, &responseMsg.params.sensor.current);
+  VAL_Analog_GetTemperature(lightId, &responseMsg.params.sensor.temperature);
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
+
+/**
+  * @brief  Send all sensor data response
+  * @param  msgId: Message ID
+  * @param  action: Message action
+  * @retval None
+  */
+static void SendAllSensorDataResponse(const char* msgId, const char* action) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_ALL_SENSORS;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, TOPIC_STATUS, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+
+  /* Get all sensor readings */
+  for (uint8_t i = 0; i < 3; i++) {
+    responseMsg.params.allSensors.id[i] = i + 1;
+    VAL_Analog_GetCurrent(i + 1, &responseMsg.params.allSensors.current[i]);
+    VAL_Analog_GetTemperature(i + 1, &responseMsg.params.allSensors.temperature[i]);
+  }
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
+
+/**
+  * @brief  Send error log response
+  * @param  msgId: Message ID
+  * @param  action: Message action
+  * @param  count: Maximum number of entries to retrieve
+  * @retval None
+  */
+static void SendErrorLogResponse(const char* msgId, const char* action, uint8_t count) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_ERROR_LOG;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, TOPIC_SYSTEM, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+
+  /* Get error logs - limit to maximum entries in the structure */
+  uint8_t maxEntries = (count > MAX_ERROR_LOG_ENTRIES) ? MAX_ERROR_LOG_ENTRIES : count;
+  responseMsg.params.errorLog.count = VAL_DataStore_GetErrorLogs(
+    responseMsg.params.errorLog.entries, maxEntries);
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
+
+/**
+  * @brief  Send alarm status response
+  * @param  msgId: Message ID
+  * @param  action: Message action
+  * @retval None
+  */
+static void SendAlarmStatusResponse(const char* msgId, const char* action) {
+  CommResponseMsg_t responseMsg;
+  memset(&responseMsg, 0, sizeof(CommResponseMsg_t));
+
+  responseMsg.responseType = COMM_RESP_ALARM_STATUS;
+  strncpy(responseMsg.msgId, msgId, COMM_MAX_ID_LEN - 1);
+  strncpy(responseMsg.topic, TOPIC_ALARM, COMM_MAX_TOPIC_LEN - 1);
+  strncpy(responseMsg.action, action, COMM_MAX_ACTION_LEN - 1);
+
+  /* Get status log */
+  VAL_DataStore_GetStatusLog(&responseMsg.params.alarmStatus.statusLog);
+
+  /* Count active alarms */
+  responseMsg.params.alarmStatus.activeCount = 0;
+  for (uint8_t i = 0; i < 3; i++) {
+    if ((responseMsg.params.alarmStatus.statusLog.activeErrors & (1 << i)) != 0) {
+      responseMsg.params.alarmStatus.activeCount++;
+    }
+  }
+
+  xQueueSend(responseQueue, &responseMsg, portMAX_DELAY);
+}
