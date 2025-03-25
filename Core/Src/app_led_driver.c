@@ -264,6 +264,22 @@ static void update_sensor_data(void) {
 }
 
 /**
+ * @brief  Get alarm status for all light sources
+ * @param  alarms: Array to store alarm status (must be size 3)
+ * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status LED_Driver_GetAlarmStatus(uint8_t* alarms) {
+  /* Validate input */
+  if (alarms == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Copy alarm status to the provided array */
+  memcpy(alarms, light_alarms, NUM_LIGHT_SOURCES * sizeof(uint8_t));
+  return VAL_OK;
+}
+
+/**
  * @brief  Check for and handle alarm conditions
  * @retval None
  */

@@ -59,6 +59,13 @@ VAL_Status LED_Driver_GetSensorData(uint8_t lightId, LightSensorData_t* sensorDa
  */
 VAL_Status LED_Driver_GetAllSensorData(LightSensorData_t* sensorData);
 
+/**
+ * @brief  Get alarm status for all light sources
+ * @param  alarms: Array to store alarm status (must be size 3)
+ * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status LED_Driver_GetAlarmStatus(uint8_t* alarms);
+
 #ifdef __cplusplus
 }
 #endif

@@ -54,6 +54,7 @@ static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status)
 static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId);
 static void COMMS_SendAllSensorDataResponse(const char* msgId);
 static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL_Status status);
+static void COMMS_SendAlarmStatusResponse(const char* msgId);
 static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const char* action, const char* message);
 
 /* Public functions ----------------------------------------------------------*/
@@ -407,6 +408,82 @@ static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL
 }
 
 /**
+ * @brief Send alarm status response
+ * @param msgId Original message ID
+ * @retval None
+ */
+static void COMMS_SendAlarmStatusResponse(const char* msgId) {
+  uint8_t alarms[3] = {0, 0, 0};
+  VAL_Status status;
+
+  /* Get alarm status for all lights */
+  status = SYS_Coordinator_GetAlarmStatus(alarms);
+
+  /* Format response */
+  int length;
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"alarm\","
+        "\"action\":\"status\","
+        "\"data\":{"
+          "\"status\":\"ok\","
+          "\"active_alarms\":["
+      , msgId);
+
+    /* Add active alarms to the response */
+    int alarmCount = 0;
+
+    for (int i = 0; i < 3; i++) {
+      if (alarms[i] != 0) {
+        /* Format alarm entry */
+        if (alarmCount > 0) {
+          /* Add comma separator for subsequent entries */
+          length += snprintf(txBuffer + length, TX_BUFFER_SIZE - length, ",");
+        }
+
+        const char* alarmType = "unknown";
+        switch (alarms[i]) {
+          case 0:
+            alarmType = "none";
+            break;
+          case 1:
+            alarmType = "over_current";
+            break;
+          case 2:
+            alarmType = "over_temperature";
+            break;
+          default:
+            alarmType = "system_error";
+            break;
+        }
+
+        length += snprintf(txBuffer + length, TX_BUFFER_SIZE - length,
+          "{\"light\":%d,\"code\":\"%s\"}", i + 1, alarmType);
+
+        alarmCount++;
+      }
+    }
+
+    /* Complete the JSON object */
+    length += snprintf(txBuffer + length, TX_BUFFER_SIZE - length,
+      "]"
+        "}"
+      "}\r\n");
+
+  } else {
+    /* Error response */
+    COMMS_SendErrorResponse(msgId, "alarm", "status", "Failed to retrieve alarm status");
+    return;
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
  * @brief Send a generic error response
  * @param msgId Original message ID
  * @param topic Message topic
@@ -720,8 +797,8 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
         }
       }
       else if (action_len == 6 && strncmp(action, "status", 6) == 0) {
-        /* TODO: Implement alarm status query */
-        COMMS_SendErrorResponse(msgId, "alarm", "status", "Not implemented");
+    	/* Get alarm status for all lights */
+        COMMS_SendAlarmStatusResponse(msgId);
       }
     }
   }

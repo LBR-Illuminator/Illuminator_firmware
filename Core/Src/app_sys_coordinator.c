@@ -193,6 +193,21 @@ VAL_Status SYS_Coordinator_ClearLightAlarm(uint8_t lightId) {
   return LED_Driver_ClearAlarm(lightId);
 }
 
+/**
+ * @brief Get alarm status for all light sources
+ * @param alarms Array to store alarm status (must be size 3)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetAlarmStatus(uint8_t* alarms) {
+  /* Validate input parameter */
+  if (alarms == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Get alarm status from LED driver */
+  return LED_Driver_GetAlarmStatus(alarms);
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**

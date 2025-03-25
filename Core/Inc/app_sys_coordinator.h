@@ -82,6 +82,13 @@ VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensorData);
  */
 VAL_Status SYS_Coordinator_ClearLightAlarm(uint8_t lightId);
 
+/**
+ * @brief Get alarm status for all light sources
+ * @param alarms Array to store alarm status (must be size 3)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_GetAlarmStatus(uint8_t* alarms);
+
 #ifdef __cplusplus
 }
 #endif
