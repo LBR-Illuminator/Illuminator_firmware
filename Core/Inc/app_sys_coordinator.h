@@ -44,6 +44,21 @@ VAL_Status SYS_Coordinator_GetLightIntensity(uint8_t lightId, uint8_t* intensity
  */
 VAL_Status SYS_Coordinator_GetAllLightIntensities(uint8_t* intensities);
 
+/**
+ * @brief Set the intensity for a specific light source
+ * @param lightId Light source ID (1-3)
+ * @param intensity Intensity value (0-100)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_SetLightIntensity(uint8_t lightId, uint8_t intensity);
+
+/**
+ * @brief Set intensities for all light sources
+ * @param intensities Array of intensity values (0-100)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_SetAllLightIntensities(uint8_t* intensities);
+
 #ifdef __cplusplus
 }
 #endif

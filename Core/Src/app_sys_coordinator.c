@@ -79,6 +79,52 @@ VAL_Status SYS_Coordinator_GetAllLightIntensities(uint8_t* intensities) {
   return VAL_OK;
 }
 
+/**
+ * @brief Set the intensity for a specific light source
+ * @param lightId Light source ID (1-3)
+ * @param intensity Intensity value (0-100)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_SetLightIntensity(uint8_t lightId, uint8_t intensity) {
+  /* Validate light ID */
+  if (lightId < 1 || lightId > 3) {
+    return VAL_ERROR;
+  }
+
+  /* Validate intensity */
+  if (intensity > 100) {
+    return VAL_ERROR;
+  }
+
+  /* Set the intensity for the specified light */
+  VAL_Status status = LED_Driver_SetIntensity(lightId, intensity);
+  if (status == VAL_OK) {
+    current_intensities[lightId - 1] = intensity;
+  }
+
+  return status;
+}
+
+/**
+ * @brief Set intensities for all light sources
+ * @param intensities Array of intensity values (0-100)
+ * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status SYS_Coordinator_SetAllLightIntensities(uint8_t* intensities) {
+  /* Validate input */
+  if (intensities == NULL) {
+    return VAL_ERROR;
+  }
+
+  /* Set intensities for all light sources */
+  VAL_Status status = LED_Driver_SetAllIntensities(intensities);
+  if (status == VAL_OK) {
+    memcpy(current_intensities, intensities, 3 * sizeof(uint8_t));
+  }
+
+  return status;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**

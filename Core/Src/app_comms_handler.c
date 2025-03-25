@@ -20,6 +20,7 @@
 #include "lwjson/lwjson.h" /* JSON parser library */
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 /* Private define ------------------------------------------------------------*/
 #define COMMS_HANDLER_STACK_SIZE   384
@@ -187,6 +188,86 @@ static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId)
 }
 
 /**
+ * @brief Send response for set light command
+ * @param msgId Original message ID
+ * @param status Operation status
+ * @retval None
+ */
+static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status) {
+  int length;
+
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"light\","
+        "\"action\":\"set\","
+        "\"data\":{"
+          "\"status\":\"ok\""
+        "}"
+      "}\r\n",
+      msgId);
+  } else {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"light\","
+        "\"action\":\"set\","
+        "\"data\":{"
+          "\"status\":\"error\","
+          "\"message\":\"Failed to set light intensity\""
+        "}"
+      "}\r\n",
+      msgId);
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+ * @brief Send response for set all lights command
+ * @param msgId Original message ID
+ * @param status Operation status
+ * @retval None
+ */
+static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status) {
+  int length;
+
+  if (status == VAL_OK) {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"light\","
+        "\"action\":\"set_all\","
+        "\"data\":{"
+          "\"status\":\"ok\""
+        "}"
+      "}\r\n",
+      msgId);
+  } else {
+    length = snprintf(txBuffer, TX_BUFFER_SIZE,
+      "{"
+        "\"type\":\"resp\","
+        "\"id\":\"%s\","
+        "\"topic\":\"light\","
+        "\"action\":\"set_all\","
+        "\"data\":{"
+          "\"status\":\"error\","
+          "\"message\":\"Failed to set light intensities\""
+        "}"
+      "}\r\n",
+      msgId);
+  }
+
+  /* Send response */
+  VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
   * @brief  Process a received JSON command string
   * @param  jsonStr: JSON command string
   * @retval None
@@ -279,6 +360,102 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
       else if (action_len == 7 && strncmp(action, "get_all", 7) == 0) {
         /* Get intensities for all lights */
         COMMS_SendLightIntensityResponse(msgId, 0);
+      }
+      else if (action_len == 3 && strncmp(action, "set", 3) == 0) {
+        /* Set light intensity */
+        uint8_t lightId = 0;
+        uint8_t intensity = 0;
+        bool foundId = false;
+        bool foundIntensity = false;
+
+        /* Find data object */
+        token = root->u.first_child;
+        while (token != NULL) {
+          if (token->token_name != NULL &&
+              strncmp(token->token_name, "data", token->token_name_len) == 0 &&
+              token->type == LWJSON_TYPE_OBJECT) {
+
+            /* Search for "id" and "intensity" inside data */
+            const lwjson_token_t* dataToken = token->u.first_child;
+            while (dataToken != NULL) {
+              if (dataToken->token_name != NULL) {
+                if (strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
+                    dataToken->type == LWJSON_TYPE_NUM_INT) {
+                  lightId = (uint8_t)dataToken->u.num_int;
+                  foundId = true;
+                }
+                else if (strncmp(dataToken->token_name, "intensity", dataToken->token_name_len) == 0 &&
+                         dataToken->type == LWJSON_TYPE_NUM_INT) {
+                  intensity = (uint8_t)dataToken->u.num_int;
+                  foundIntensity = true;
+                }
+              }
+              dataToken = dataToken->next;
+            }
+            break;
+          }
+          token = token->next;
+        }
+
+        /* Set light intensity if parameters are valid */
+        VAL_Status status = VAL_ERROR;
+        if (foundId && foundIntensity) {
+          status = SYS_Coordinator_SetLightIntensity(lightId, intensity);
+        }
+
+        /* Send response */
+        COMMS_SendSetLightResponse(msgId, status);
+      }
+      else if (action_len == 7 && strncmp(action, "set_all", 7) == 0) {
+        /* Set all light intensities */
+        uint8_t intensities[3] = {0, 0, 0};
+        bool foundIntensities = false;
+
+        /* Find data object */
+        token = root->u.first_child;
+        while (token != NULL) {
+          if (token->token_name != NULL &&
+              strncmp(token->token_name, "data", token->token_name_len) == 0 &&
+              token->type == LWJSON_TYPE_OBJECT) {
+
+            /* Search for "intensities" array inside data */
+            const lwjson_token_t* dataToken = token->u.first_child;
+            while (dataToken != NULL) {
+              if (dataToken->token_name != NULL &&
+                  strncmp(dataToken->token_name, "intensities", dataToken->token_name_len) == 0 &&
+                  dataToken->type == LWJSON_TYPE_ARRAY) {
+
+                /* Parse intensities array */
+                const lwjson_token_t* arrayToken = dataToken->u.first_child;
+                int index = 0;
+
+                while (arrayToken != NULL && index < 3) {
+                  if (arrayToken->type == LWJSON_TYPE_NUM_INT) {
+                    intensities[index++] = (uint8_t)arrayToken->u.num_int;
+                  }
+                  arrayToken = arrayToken->next;
+                }
+
+                if (index == 3) {
+                  foundIntensities = true;
+                }
+                break;
+              }
+              dataToken = dataToken->next;
+            }
+            break;
+          }
+          token = token->next;
+        }
+
+        /* Set all light intensities if parameters are valid */
+        VAL_Status status = VAL_ERROR;
+        if (foundIntensities) {
+          status = SYS_Coordinator_SetAllLightIntensities(intensities);
+        }
+
+        /* Send response */
+        COMMS_SendSetAllLightsResponse(msgId, status);
       }
     }
   }
