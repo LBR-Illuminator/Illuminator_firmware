@@ -50,15 +50,20 @@ static void check_alarm_conditions(void);
  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
  */
 VAL_Status LED_Driver_Init(void) {
-  /* TODO: Perform any necessary LED driver initialization */
   /* Set initial values for all lights */
   for (uint8_t i = 0; i < NUM_LIGHT_SOURCES; i++) {
     current_intensities[i] = 0;
-	light_sensor_data[i].current = 0.0f;
-	light_sensor_data[i].temperature = 25.0f;
-	light_alarms[i] = 0;
+    light_sensor_data[i].current = 0.0f;
+    light_sensor_data[i].temperature = 25.0f;
+    light_alarms[i] = 0;
   }
-return VAL_OK;
+
+  /* Initialize PWM channels to 0% intensity */
+  for (uint8_t i = 0; i < NUM_LIGHT_SOURCES; i++) {
+    VAL_PWM_SetIntensity(i + 1, 0);
+  }
+
+  return VAL_OK;
 }
 
 /**
@@ -95,10 +100,8 @@ VAL_Status LED_Driver_SetIntensity(uint8_t lightId, uint8_t intensity) {
   /* Check for potential alarm conditions */
   check_alarm_conditions();
 
-  /* TODO: Implement actual PWM control for the light source */
-  // VAL_PWM_SetDutyCycle(lightId, intensity);
-
-  return VAL_OK;
+  /* Set the actual PWM output for the light source */
+  return VAL_PWM_SetIntensity(lightId, intensity);
 }
 
 /**
@@ -108,17 +111,27 @@ VAL_Status LED_Driver_SetIntensity(uint8_t lightId, uint8_t intensity) {
  */
 VAL_Status LED_Driver_SetAllIntensities(uint8_t *intensities) {
   VAL_Status status = VAL_OK;
+  VAL_Status pwmStatus = VAL_OK;
 
   for (uint8_t i = 0; i < NUM_LIGHT_SOURCES; i++) {
     /* Skip lights with active alarms instead of failing the whole operation */
     if (!light_alarms[i]) {
-      status = LED_Driver_SetIntensity(i + 1, intensities[i]);
-      if (status != VAL_OK) {
+      /* Update internal state */
+      current_intensities[i] = intensities[i];
+
+      /* Set the actual PWM output */
+      VAL_Status lightStatus = VAL_PWM_SetIntensity(i + 1, intensities[i]);
+      if (lightStatus != VAL_OK) {
         /* Return error but continue setting other lights */
         status = VAL_ERROR;
+        pwmStatus = VAL_ERROR;
       }
     }
   }
+
+  /* Update sensor data and check alarms after setting all intensities */
+  update_sensor_data();
+  check_alarm_conditions();
 
   return status;
 }
@@ -291,6 +304,9 @@ static void check_alarm_conditions(void) {
       light_alarms[i] = ERROR_OVER_CURRENT;
       current_intensities[i] = 0;
 
+      /* Turn off the actual PWM output */
+      VAL_PWM_SetIntensity(i + 1, 0);
+
       /* TODO: Log error event */
     }
 
@@ -299,6 +315,9 @@ static void check_alarm_conditions(void) {
       /* Set alarm and turn off light */
       light_alarms[i] = ERROR_OVER_TEMPERATURE;
       current_intensities[i] = 0;
+
+      /* Turn off the actual PWM output */
+      VAL_PWM_SetIntensity(i + 1, 0);
 
       /* TODO: Log error event */
     }
