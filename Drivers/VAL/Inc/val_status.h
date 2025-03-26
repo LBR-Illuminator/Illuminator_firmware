@@ -27,9 +27,9 @@ typedef enum {
 
 /* Error types for data store */
 typedef enum {
-  ERROR_OVER_CURRENT = 0,
-  ERROR_OVER_TEMPERATURE = 1,
-  ERROR_SYSTEM = 2
+  ERROR_OVER_CURRENT = 1,
+  ERROR_OVER_TEMPERATURE = 2,
+  ERROR_SYSTEM = 3
 } ErrorType_t;
 
 /* Status log structure */

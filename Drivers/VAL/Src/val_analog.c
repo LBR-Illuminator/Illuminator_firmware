@@ -16,7 +16,9 @@
 #include "val_analog.h"
 #include "val_serial_comms.h"
 #include "adc.h"
+#include "dma.h"
 #include <string.h>
+#include <math.h>
 
 /* Private define ------------------------------------------------------------*/
 #define ADC_CHANNEL_COUNT 6
@@ -25,13 +27,9 @@
 #define ADC_RESOLUTION 4095.0f  /* 12-bit ADC */
 #define ADC_REFERENCE 3.3f      /* Reference voltage in volts */
 
-/* Current sensor parameters */
-#define CURRENT_SENSE_RATIO 0.1f  /* V/A - Volts per Amp */
-
-/* Temperature sensor parameters */
-#define TEMP_SENSOR_BETA 3950.0f
-#define TEMP_SENSOR_R0 10000.0f  /* 10k NTC thermistor */
-#define TEMP_SENSOR_T0 298.15f   /* 25°C in Kelvin */
+/* Simplified sensor conversion factors */
+#define CURRENT_CONVERSION_FACTOR 10.0f       /* 3.3V = 33A, so each volt is 10A */
+#define TEMPERATURE_CONVERSION_FACTOR 100.0f  /* 3.3V = 330°C, so each volt is 100°C */
 
 /* Private typedef -----------------------------------------------------------*/
 typedef enum {
@@ -54,10 +52,13 @@ static volatile uint8_t conversionComplete = 0;
   * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
   */
 VAL_Status VAL_Analog_Init(void) {
+  VAL_Serial_Printf("Starting ADC initialization...\r\n");
+
   /* Stop any ongoing conversions first */
-  if (HAL_ADC_Stop(&hadc1) != HAL_OK) {
-    VAL_Serial_Printf("Failed to stop ADC\r\n");
-  }
+  HAL_ADC_Stop_DMA(&hadc1);
+
+  /* Initialize DMA first - this is critical */
+  MX_DMA_Init();
 
   /* Reset ADC */
   __HAL_ADC_RESET_HANDLE_STATE(&hadc1);
@@ -65,127 +66,28 @@ VAL_Status VAL_Analog_Init(void) {
   /* Initialize ADC */
   MX_ADC1_Init();
   
-  /* Calibrate ADC */
-  if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) {
-    VAL_Serial_Printf("ADC Calibration Failed\r\n");
-    return VAL_ERROR;
-  }
+  /* Small delay to let ADC stabilize */
+  HAL_Delay(10);
+
+  /* Clear any pending flags */
+  __HAL_ADC_CLEAR_FLAG(&hadc1, (ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR));
   
   /* Start ADC in DMA mode */
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_CHANNEL_COUNT) != HAL_OK) {
+  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE) != HAL_OK) {
     VAL_Serial_Printf("Failed to start ADC DMA\r\n");
     return VAL_ERROR;
   }
   
+  HAL_ADC_Start(&hadc1);
+
+  VAL_Serial_Printf("ADC initialization completed successfully\r\n");
   return VAL_OK;
 }
 
-/**
-  * @brief  Start a new ADC conversion sequence
-  * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
-  */
-VAL_Status VAL_Analog_StartConversion(void) {
-  /* Reset conversion complete flag */
-  conversionComplete = 0;
-  
-  /* Start ADC conversion */
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE) != HAL_OK) {
-    return VAL_ERROR;
-  }
-  
-  return VAL_OK;
-}
-
-/**
-  * @brief  Check if ADC conversion is complete
-  * @retval uint8_t: 1 if complete, 0 if ongoing
-  */
-uint8_t VAL_Analog_IsConversionComplete(void) {
-  return conversionComplete;
-}
-
-
-VAL_Status VAL_Analog_DiagnosticReadRaw(void) {
-    HAL_StatusTypeDef status;
-    uint32_t adcBufferLocal[ADC_BUFFER_SIZE];
-    ADC_ChannelConfTypeDef sConfig = {0};
-
-    /* Stop any ongoing conversions */
-    status = HAL_ADC_Stop(&hadc1);
-    if (status != HAL_OK) {
-        VAL_Serial_Printf("Stop ADC Failed: %d\r\n", status);
-        return VAL_ERROR;
-    }
-
-    /* Reset handle state */
-    __HAL_ADC_RESET_HANDLE_STATE(&hadc1);
-
-    /* Reconfigure if needed */
-    if (HAL_ADC_Init(&hadc1) != HAL_OK) {
-        VAL_Serial_Printf("ADC Reinit Failed\r\n");
-        return VAL_ERROR;
-    }
-
-    /* Verify channel configuration */
-    VAL_Serial_Printf("ADC Configuration Check:\r\n");
-
-    /* Known channel sequence from initialization */
-    uint32_t channels[] = {
-        ADC_CHANNEL_6,   // PA1
-        ADC_CHANNEL_8,   // PA3
-        ADC_CHANNEL_9,   // PA4
-        ADC_CHANNEL_10,  // PA5
-        ADC_CHANNEL_11,  // PA6
-        ADC_CHANNEL_12   // PA7
-    };
-
-    /* Manually go through each channel */
-    for (int i = 0; i < 6; i++) {
-        /* Manually reset configuration */
-        sConfig.Channel = channels[i];
-        sConfig.Rank = ADC_REGULAR_RANK_1;  // Reset to first rank
-        sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
-        sConfig.SingleDiff = ADC_SINGLE_ENDED;
-        sConfig.OffsetNumber = ADC_OFFSET_NONE;
-        sConfig.Offset = 0;
-
-        /* Reconfigure channel */
-        status = HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-        if (status != HAL_OK) {
-            VAL_Serial_Printf("Failed to configure Channel %lu\r\n", channels[i]);
-            continue;
-        }
-
-        /* Start conversion for this channel */
-        status = HAL_ADC_Start(&hadc1);
-        if (status != HAL_OK) {
-            VAL_Serial_Printf("ADC Start Failed for Channel %lu: %d\r\n", channels[i], status);
-            continue;
-        }
-
-        /* Poll for conversion */
-        status = HAL_ADC_PollForConversion(&hadc1, 100);
-        if (status != HAL_OK) {
-            VAL_Serial_Printf("ADC Poll Failed for Channel %lu: %d\r\n", channels[i], status);
-            HAL_ADC_Stop(&hadc1);
-            continue;
-        }
-
-        /* Get the conversion result */
-        adcBufferLocal[i] = HAL_ADC_GetValue(&hadc1);
-        VAL_Serial_Printf("Channel %d (ADC_CHANNEL_%lu): %lu\r\n",
-                          i, channels[i], adcBufferLocal[i]);
-
-        /* Stop conversion */
-        HAL_ADC_Stop(&hadc1);
-    }
-
-    return VAL_OK;
-}
 /**
   * @brief  Get current reading for a specific light
   * @param  lightId: Light ID (1-3)
-  * @param  current: Pointer to store current value in milliamps
+  * @param  current: Pointer to store current value in Amps
   * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
   */
 VAL_Status VAL_Analog_GetCurrent(uint8_t lightId, float* current) {
@@ -197,16 +99,14 @@ VAL_Status VAL_Analog_GetCurrent(uint8_t lightId, float* current) {
   /* Map light ID to ADC channel */
   AdcChannelIndex channelIndex = CHANNEL_CURRENT_1 + (lightId - 1);
   
-  VAL_Analog_DiagnosticReadRaw();
-
   /* Get raw ADC value */
   uint32_t adcValue = adcBuffer[channelIndex];
   
   /* Convert to voltage */
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REFERENCE;
   
-  /* Convert to current (milliamps) */
-  *current = (voltage / CURRENT_SENSE_RATIO) * 1000.0f;
+  /* Simple linear conversion: 3.3V = 33A */
+  *current = voltage * CURRENT_CONVERSION_FACTOR;
   
   return VAL_OK;
 }
@@ -232,14 +132,8 @@ VAL_Status VAL_Analog_GetTemperature(uint8_t lightId, float* temperature) {
   /* Convert to voltage */
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REFERENCE;
   
-  /* Calculate resistance (voltage divider with 10k pullup) */
-  float resistance = (10000.0f * voltage) / (ADC_REFERENCE - voltage);
-  
-  /* Convert to temperature using B-parameter equation */
-  float tempKelvin = 1.0f / ((1.0f / TEMP_SENSOR_T0) + (1.0f / TEMP_SENSOR_BETA) * logf(resistance / TEMP_SENSOR_R0));
-  
-  /* Convert to Celsius */
-  *temperature = tempKelvin - 273.15f;
+  /* Simple linear conversion: 3.3V = 330°C */
+  *temperature = voltage * TEMPERATURE_CONVERSION_FACTOR;
   
   return VAL_OK;
 }
@@ -266,10 +160,7 @@ VAL_Status VAL_Analog_GetSensorData(uint8_t lightId, LightSensorData* sensorData
   if (status != VAL_OK) {
     return status;
   }
-  
-  /* Set light ID */
-  sensorData->lightId = lightId;
-  
+
   return VAL_OK;
 }
 
@@ -279,17 +170,24 @@ VAL_Status VAL_Analog_GetSensorData(uint8_t lightId, LightSensorData* sensorData
   * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
   */
 VAL_Status VAL_Analog_GetAllSensorData(LightSensorData sensorData[]) {
-  VAL_Status status = VAL_OK;
-  
+  VAL_Status overallStatus = VAL_OK;
+
   /* Get sensor data for each light */
   for (uint8_t i = 0; i < LIGHT_COUNT; i++) {
+    /* Explicitly initialize the sensor data entry */
+    sensorData[i].current = 0.0f;
+    sensorData[i].temperature = 0.0f;
+
+    /* Get sensor data for this specific light */
     VAL_Status lightStatus = VAL_Analog_GetSensorData(i + 1, &sensorData[i]);
+
     if (lightStatus != VAL_OK) {
-      status = lightStatus;
+      /* Track if any light's sensor data retrieval failed */
+      overallStatus = VAL_ERROR;
     }
   }
   
-  return status;
+  return overallStatus;
 }
 
 /**
@@ -311,7 +209,47 @@ VAL_Status VAL_Analog_DeInit(void) {
   * @retval None
   */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
-  if (hadc->Instance == ADC1) {
-    conversionComplete = 1;
+	//TODO: implement safety limits check
+}
+
+/**
+  * @brief  ADC error callback
+  * @param  hadc: ADC handle
+  * @retval None
+  */
+void HAL_ADC_ErrorCallback(ADC_HandleTypeDef* hadc) {
+  // Get error code
+  uint32_t errorCode = HAL_ADC_GetError(hadc);
+
+  // Print specific error information
+  VAL_Serial_Printf("ADC Error occurred, code: 0x%08lX\r\n", errorCode);
+
+  if (errorCode & HAL_ADC_ERROR_INTERNAL) VAL_Serial_Printf("- Internal error\r\n");
+  if (errorCode & HAL_ADC_ERROR_OVR) VAL_Serial_Printf("- Overrun error\r\n");
+  if (errorCode & HAL_ADC_ERROR_DMA) VAL_Serial_Printf("- DMA transfer error\r\n");
+  if (errorCode & HAL_ADC_ERROR_JQOVF) VAL_Serial_Printf("- Injected queue overflow error\r\n");
+
+  // More thorough error recovery
+  HAL_ADC_Stop_DMA(hadc);
+
+  // Clear all flags
+  __HAL_ADC_CLEAR_FLAG(hadc, (ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR));
+  if (hadc->DMA_Handle != NULL) {
+    __HAL_DMA_CLEAR_FLAG(hadc->DMA_Handle, (DMA_FLAG_TC1 | DMA_FLAG_HT1 | DMA_FLAG_TE1));
   }
+
+  // Wait a moment
+  HAL_Delay(10);
+
+  // Restart ADC with DMA
+  HAL_ADC_Start_DMA(hadc, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+}
+
+/**
+  * @brief  DMA error callback
+  * @param  hdma: DMA handle
+  * @retval None
+  */
+void HAL_DMA_ErrorCallback(DMA_HandleTypeDef *hdma) {
+  VAL_Serial_Printf("DMA Error occurred, code: 0x%08lX\r\n", HAL_DMA_GetError(hdma));
 }

@@ -32,11 +32,12 @@ static uint8_t current_intensities[3] = {0, 0, 0};
 
 /* Private sensor data storage */
 static LightSensorData_t current_sensor_data[3] = {
-  {0.0f, 25.0f},  /* Light 1: 0 mA, 25°C */
-  {0.0f, 25.0f},  /* Light 2: 0 mA, 25°C */
-  {0.0f, 25.0f}   /* Light 3: 0 mA, 25°C */
+  {1, 0.0f, 0.0f},  // First light, initialized with ID and zero values
+  {2, 0.0f, 0.0f},  // Second light
+  {3, 0.0f, 0.0f}   // Third light
 };
 
+uint8_t light_alarms[3] = {0, 0, 0};
 
 /* Private function prototypes -----------------------------------------------*/
 static void SYS_Coordinator_Task(void const *argument);
@@ -167,15 +168,9 @@ VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensorData) 
     return VAL_ERROR;
   }
 
-  /* Get all sensor data from LED driver */
-  VAL_Status status = LED_Driver_GetAllSensorData(sensorData);
+  memcpy(sensorData, current_sensor_data, 3 * sizeof(LightSensorData_t));
 
-  /* If successful, update our cached copy */
-  if (status == VAL_OK) {
-    memcpy(current_sensor_data, sensorData, 3 * sizeof(LightSensorData_t));
-  }
-
-  return status;
+  return VAL_OK;
 }
 
 /**
@@ -205,7 +200,8 @@ VAL_Status SYS_Coordinator_GetAlarmStatus(uint8_t* alarms) {
   }
 
   /* Get alarm status from LED driver */
-  return LED_Driver_GetAlarmStatus(alarms);
+  memcpy(alarms, light_alarms, sizeof(alarms));
+  return VAL_OK;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -217,15 +213,25 @@ VAL_Status SYS_Coordinator_GetAlarmStatus(uint8_t* alarms) {
  */
 static void SYS_Coordinator_Task(void const *argument) {
     /* Initialize */
-    VAL_Serial_Printf("System Coordinator initialized\r\n");
+    VAL_Status status;
 
     /* Task main loop */
     for (;;) {
-        /* Synchronize all light intensities */
-        LED_Driver_GetAllIntensities(current_intensities);
+
+    	/* Synchronize all light intensities */
+    	status = LED_Driver_GetAllIntensities(current_intensities);
+    	if(status != VAL_OK)
+          VAL_Serial_Printf("Failed to get intensities\n");
 
         /* Synchronize all sensor data */
-        LED_Driver_GetAllSensorData(current_sensor_data);
+    	status = LED_Driver_GetAllSensorData(current_sensor_data);
+    	if(status != VAL_OK)
+    	  VAL_Serial_Printf("Failed to get sensor data\n");
+
+        /* Synchronize all alarms */
+    	status = LED_Driver_GetAlarmStatus(light_alarms);
+    	if(status != VAL_OK)
+    	  VAL_Serial_Printf("Failed to get alarms\n");
 
         osDelay(100); /* Update every 100 milliseconds */
     }

@@ -96,6 +96,12 @@ static void Init_Task(void *argument) {
     System_Error();
   }
 
+  /* Initialize System Coordinator*/
+  status = SYS_Coordinator_Init();
+  if (status != VAL_OK) {
+	  System_Error();
+  }
+
   /* Send system ready message */
   VAL_Serial_Printf("Wiseled_LBR System ready!\r\n");
 

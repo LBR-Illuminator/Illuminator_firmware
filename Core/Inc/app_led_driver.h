@@ -19,8 +19,9 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 typedef struct {
-	float current;        /* Current in mA */
-	float temperature;    /* Temperature in Celsius */
+    uint8_t lightId;   /* Light ID (1-3) */
+    float current;     /* Current in milliamps */
+    float temperature; /* Temperature in degrees Celsius */
 } LightSensorData_t;
 
 /* Exported functions prototypes ---------------------------------------------*/
