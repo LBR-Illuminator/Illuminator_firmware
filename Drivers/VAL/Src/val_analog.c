@@ -14,6 +14,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "val_analog.h"
+#include "val_serial_comms.h"
 #include "adc.h"
 #include <string.h>
 
@@ -53,16 +54,26 @@ static volatile uint8_t conversionComplete = 0;
   * @retval VAL_Status: VAL_OK if successful, VAL_ERROR otherwise
   */
 VAL_Status VAL_Analog_Init(void) {
+  /* Stop any ongoing conversions first */
+  if (HAL_ADC_Stop(&hadc1) != HAL_OK) {
+    VAL_Serial_Printf("Failed to stop ADC\r\n");
+  }
+
+  /* Reset ADC */
+  __HAL_ADC_RESET_HANDLE_STATE(&hadc1);
+
   /* Initialize ADC */
   MX_ADC1_Init();
   
   /* Calibrate ADC */
   if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) {
+    VAL_Serial_Printf("ADC Calibration Failed\r\n");
     return VAL_ERROR;
   }
   
   /* Start ADC in DMA mode */
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE) != HAL_OK) {
+  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_CHANNEL_COUNT) != HAL_OK) {
+    VAL_Serial_Printf("Failed to start ADC DMA\r\n");
     return VAL_ERROR;
   }
   
@@ -93,6 +104,84 @@ uint8_t VAL_Analog_IsConversionComplete(void) {
   return conversionComplete;
 }
 
+
+VAL_Status VAL_Analog_DiagnosticReadRaw(void) {
+    HAL_StatusTypeDef status;
+    uint32_t adcBufferLocal[ADC_BUFFER_SIZE];
+    ADC_ChannelConfTypeDef sConfig = {0};
+
+    /* Stop any ongoing conversions */
+    status = HAL_ADC_Stop(&hadc1);
+    if (status != HAL_OK) {
+        VAL_Serial_Printf("Stop ADC Failed: %d\r\n", status);
+        return VAL_ERROR;
+    }
+
+    /* Reset handle state */
+    __HAL_ADC_RESET_HANDLE_STATE(&hadc1);
+
+    /* Reconfigure if needed */
+    if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+        VAL_Serial_Printf("ADC Reinit Failed\r\n");
+        return VAL_ERROR;
+    }
+
+    /* Verify channel configuration */
+    VAL_Serial_Printf("ADC Configuration Check:\r\n");
+
+    /* Known channel sequence from initialization */
+    uint32_t channels[] = {
+        ADC_CHANNEL_6,   // PA1
+        ADC_CHANNEL_8,   // PA3
+        ADC_CHANNEL_9,   // PA4
+        ADC_CHANNEL_10,  // PA5
+        ADC_CHANNEL_11,  // PA6
+        ADC_CHANNEL_12   // PA7
+    };
+
+    /* Manually go through each channel */
+    for (int i = 0; i < 6; i++) {
+        /* Manually reset configuration */
+        sConfig.Channel = channels[i];
+        sConfig.Rank = ADC_REGULAR_RANK_1;  // Reset to first rank
+        sConfig.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
+        sConfig.SingleDiff = ADC_SINGLE_ENDED;
+        sConfig.OffsetNumber = ADC_OFFSET_NONE;
+        sConfig.Offset = 0;
+
+        /* Reconfigure channel */
+        status = HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+        if (status != HAL_OK) {
+            VAL_Serial_Printf("Failed to configure Channel %lu\r\n", channels[i]);
+            continue;
+        }
+
+        /* Start conversion for this channel */
+        status = HAL_ADC_Start(&hadc1);
+        if (status != HAL_OK) {
+            VAL_Serial_Printf("ADC Start Failed for Channel %lu: %d\r\n", channels[i], status);
+            continue;
+        }
+
+        /* Poll for conversion */
+        status = HAL_ADC_PollForConversion(&hadc1, 100);
+        if (status != HAL_OK) {
+            VAL_Serial_Printf("ADC Poll Failed for Channel %lu: %d\r\n", channels[i], status);
+            HAL_ADC_Stop(&hadc1);
+            continue;
+        }
+
+        /* Get the conversion result */
+        adcBufferLocal[i] = HAL_ADC_GetValue(&hadc1);
+        VAL_Serial_Printf("Channel %d (ADC_CHANNEL_%lu): %lu\r\n",
+                          i, channels[i], adcBufferLocal[i]);
+
+        /* Stop conversion */
+        HAL_ADC_Stop(&hadc1);
+    }
+
+    return VAL_OK;
+}
 /**
   * @brief  Get current reading for a specific light
   * @param  lightId: Light ID (1-3)
@@ -108,6 +197,8 @@ VAL_Status VAL_Analog_GetCurrent(uint8_t lightId, float* current) {
   /* Map light ID to ADC channel */
   AdcChannelIndex channelIndex = CHANNEL_CURRENT_1 + (lightId - 1);
   
+  VAL_Analog_DiagnosticReadRaw();
+
   /* Get raw ADC value */
   uint32_t adcValue = adcBuffer[channelIndex];
   
