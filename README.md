@@ -33,10 +33,60 @@ illuminator-firmware/
 ├── Core/                 # Core application code
 │   ├── Inc/              # Header files
 │   └── Src/              # Source files
-├── Drivers/              # STM32 HAL drivers
+├── Drivers/              # Project specific drivers
+│   ├── VAL/              # Vendor abstraction layer
+│   └── HAL/              # STM32 hardware abstraction layer 
 ├── Middlewares/          # Third-party middleware
 └── .gitignore            # Git ignore file
 ```
+
+## Coding Style Guidelines
+
+The project follows a modified version of ST's HAL coding style with the following conventions:
+
+### File Organization
+- Header files (.h) in `/Core/Inc` and `/Drivers/VAL/Inc`
+- Source files (.c) in `/Core/Src` and `/Drivers/VAL/Src`
+- All files must have a consistent header block with copyright notice and description
+
+### Naming Conventions
+- **Functions**: Module prefix with underscore separation (e.g., `VAL_Analog_Init`)
+- **Constants**: ALL_CAPS with underscores (e.g., `PWM_CHANNEL_COUNT`)
+- **Variables**: snake_case for local and static variables (e.g., `light_sensor_data`)
+- **Types**: PascalCase with "_t" suffix (e.g., `LightSensorData_t`)
+- **Enums**: PascalCase with "_t" suffix (e.g., `ErrorType_t`)
+
+### Code Structure
+- Two space indentation
+- Opening braces on the same line for functions and control statements
+- Closing braces on a separate line
+- Space after keywords (if, for, while, switch)
+- No space after function names in declarations or calls
+- Space around operators (e.g., `a + b`, not `a+b`)
+
+### Documentation
+- Functions must be documented with:
+  ```c
+  /**
+    * @brief  Brief description
+    * @param  paramName: Parameter description
+    * @retval Description of return value
+    */
+  ```
+- Section headers should use:
+  ```c
+  /* Private define ------------------------------------------------------------*/
+  ```
+
+### Error Handling
+- Functions should validate parameters at the beginning
+- Use `VAL_Status` return values consistently
+- Check status returns from function calls
+
+### Header File Structure
+- Include guards with `#ifndef __FILE_H`
+- Group related functions and types together
+- Include minimal necessary headers only
 
 ## Getting Started
 
@@ -63,16 +113,6 @@ The firmware implements a JSON-based communication protocol over UART (115200 bp
 - Querying current status including intensity levels
 - Reading sensor data (current and temperature)
 - Retrieving and clearing error logs
-
-Detailed protocol documentation is available in the `docs` directory.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 

@@ -37,7 +37,8 @@ static LightSensorData_t current_sensor_data[3] = {
   {3, 0.0f, 0.0f}   // Third light
 };
 
-uint8_t light_alarms[3] = {0, 0, 0};
+static uint8_t light_alarms[3] = {0, 0, 0};
+static uint8_t previous_light_alarms[3] = {0, 0, 0};
 
 /* Private function prototypes -----------------------------------------------*/
 static void SYS_Coordinator_Task(void const *argument);
@@ -66,14 +67,14 @@ VAL_Status SYS_Coordinator_Init(void) {
  * @param intensity Pointer to store the retrieved intensity
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status SYS_Coordinator_GetLightIntensity(uint8_t lightId, uint8_t* intensity) {
+VAL_Status SYS_Coordinator_GetLightIntensity(uint8_t light_id, uint8_t* intensity) {
   /* Validate light ID */
-  if (lightId < 1 || lightId > 3) {
+  if (light_id < 1 || light_id > 3) {
     return VAL_ERROR;
   }
 
   /* Retrieve the current intensity for the specified light */
-  *intensity = current_intensities[lightId - 1];
+  *intensity = current_intensities[light_id - 1];
   return VAL_OK;
 }
 
@@ -94,9 +95,9 @@ VAL_Status SYS_Coordinator_GetAllLightIntensities(uint8_t* intensities) {
  * @param intensity Intensity value (0-100)
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status SYS_Coordinator_SetLightIntensity(uint8_t lightId, uint8_t intensity) {
+VAL_Status SYS_Coordinator_SetLightIntensity(uint8_t light_id, uint8_t intensity) {
   /* Validate light ID */
-  if (lightId < 1 || lightId > 3) {
+  if (light_id < 1 || light_id > 3) {
     return VAL_ERROR;
   }
 
@@ -106,9 +107,9 @@ VAL_Status SYS_Coordinator_SetLightIntensity(uint8_t lightId, uint8_t intensity)
   }
 
   /* Set the intensity for the specified light */
-  VAL_Status status = LED_Driver_SetIntensity(lightId, intensity);
+  VAL_Status status = LED_Driver_SetIntensity(light_id, intensity);
   if (status == VAL_OK) {
-    current_intensities[lightId - 1] = intensity;
+    current_intensities[light_id - 1] = intensity;
   }
 
   return status;
@@ -140,18 +141,18 @@ VAL_Status SYS_Coordinator_SetAllLightIntensities(uint8_t* intensities) {
  * @param sensorData Pointer to store sensor readings
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status SYS_Coordinator_GetLightSensorData(uint8_t lightId, LightSensorData_t* sensorData) {
+VAL_Status SYS_Coordinator_GetLightSensorData(uint8_t light_id, LightSensorData_t* sensor_data) {
   /* Validate input parameters */
-  if (lightId < 1 || lightId > 3 || sensorData == NULL) {
+  if (light_id < 1 || light_id > 3 || sensor_data == NULL) {
     return VAL_ERROR;
   }
 
   /* Get sensor data from LED driver */
-  VAL_Status status = LED_Driver_GetSensorData(lightId, sensorData);
+  VAL_Status status = LED_Driver_GetSensorData(light_id, sensor_data);
 
   /* If successful, update our cached copy */
   if (status == VAL_OK) {
-    current_sensor_data[lightId - 1] = *sensorData;
+    current_sensor_data[light_id - 1] = *sensor_data;
   }
 
   return status;
@@ -162,13 +163,13 @@ VAL_Status SYS_Coordinator_GetLightSensorData(uint8_t lightId, LightSensorData_t
  * @param sensorData Array to store sensor readings (must be size 3)
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensorData) {
+VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensor_data) {
   /* Validate input parameter */
-  if (sensorData == NULL) {
+  if (sensor_data == NULL) {
     return VAL_ERROR;
   }
 
-  memcpy(sensorData, current_sensor_data, 3 * sizeof(LightSensorData_t));
+  memcpy(sensor_data, current_sensor_data, 3 * sizeof(LightSensorData_t));
 
   return VAL_OK;
 }
@@ -178,14 +179,14 @@ VAL_Status SYS_Coordinator_GetAllLightSensorData(LightSensorData_t* sensorData) 
  * @param lightId Light source ID (1-3)
  * @return VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status SYS_Coordinator_ClearLightAlarm(uint8_t lightId) {
+VAL_Status SYS_Coordinator_ClearLightAlarm(uint8_t light_id) {
   /* Validate light ID */
-  if (lightId < 1 || lightId > 3) {
+  if (light_id < 1 || light_id > 3) {
     return VAL_ERROR;
   }
 
   /* Attempt to clear the alarm in the LED driver */
-  return LED_Driver_ClearAlarm(lightId);
+  return LED_Driver_ClearAlarm(light_id);
 }
 
 /**
@@ -217,21 +218,45 @@ static void SYS_Coordinator_Task(void const *argument) {
 
     /* Task main loop */
     for (;;) {
-
-    	/* Synchronize all light intensities */
-    	status = LED_Driver_GetAllIntensities(current_intensities);
-    	if(status != VAL_OK)
+        /* Synchronize all light intensities */
+        status = LED_Driver_GetAllIntensities(current_intensities);
+        if(status != VAL_OK)
           VAL_Serial_Printf("Failed to get intensities\n");
 
         /* Synchronize all sensor data */
-    	status = LED_Driver_GetAllSensorData(current_sensor_data);
-    	if(status != VAL_OK)
-    	  VAL_Serial_Printf("Failed to get sensor data\n");
+        status = LED_Driver_GetAllSensorData(current_sensor_data);
+        if(status != VAL_OK)
+          VAL_Serial_Printf("Failed to get sensor data\n");
 
         /* Synchronize all alarms */
-    	status = LED_Driver_GetAlarmStatus(light_alarms);
-    	if(status != VAL_OK)
-    	  VAL_Serial_Printf("Failed to get alarms\n");
+        status = LED_Driver_GetAlarmStatus(light_alarms);
+        if(status != VAL_OK)
+          VAL_Serial_Printf("Failed to get alarms\n");
+
+        /* Check for new alarm conditions */
+        for (uint8_t i = 0; i < 3; i++) {
+            if (light_alarms[i] != 0 && previous_light_alarms[i] == 0) {
+                /* New alarm detected - send event notification */
+                float value = 0.0f;
+
+                /* Use the appropriate sensor value based on alarm type */
+                if (light_alarms[i] == 1) { /* ERROR_OVER_CURRENT */
+                    value = current_sensor_data[i].current;
+                } else if (light_alarms[i] == 2) { /* ERROR_OVER_TEMPERATURE */
+                    value = current_sensor_data[i].temperature;
+                }
+
+                /* Send alarm event notification */
+                COMMS_SendAlarmEvent(i + 1, light_alarms[i], value);
+
+                /* Log the alarm event */
+//                VAL_Serial_Printf("Alarm triggered for light %d: type %d, value %.1f\n",
+//                                 i + 1, light_alarms[i], value);
+            }
+
+            /* Update previous alarm state */
+            previous_light_alarms[i] = light_alarms[i];
+        }
 
         osDelay(100); /* Update every 100 milliseconds */
     }

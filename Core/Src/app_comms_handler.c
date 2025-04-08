@@ -45,17 +45,17 @@ static lwjson_token_t jsonTokens[32];
 
 /* Private function prototypes -----------------------------------------------*/
 static void COMMS_Handler_Task(void const *argument);
-static void COMMS_ProcessJsonCommand(const char* jsonStr);
+static void COMMS_ProcessJsonCommand(const char* json_str);
 static void COMMS_SerialRxCallback(uint8_t byte);
-static void COMMS_SendPingResponse(const char* msgId);
-static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId);
-static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status);
-static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status);
-static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId);
-static void COMMS_SendAllSensorDataResponse(const char* msgId);
-static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL_Status status);
-static void COMMS_SendAlarmStatusResponse(const char* msgId);
-static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const char* action, const char* message);
+static void COMMS_SendPingResponse(const char* msg_id);
+static void COMMS_SendLightIntensityResponse(const char* msg_id, uint8_t light_id);
+static void COMMS_SendSetLightResponse(const char* msg_id, VAL_Status status);
+static void COMMS_SendSetAllLightsResponse(const char* msg_id, VAL_Status status);
+static void COMMS_SendSensorDataResponse(const char* msg_id, uint8_t light_id);
+static void COMMS_SendAllSensorDataResponse(const char* msg_id);
+static void COMMS_SendAlarmClearResponse(const char* msg_id, uint8_t light_id, VAL_Status status);
+static void COMMS_SendAlarmStatusResponse(const char* msg_id);
+static void COMMS_SendErrorResponse(const char* msg_id, const char* topic, const char* action, const char* message);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -106,9 +106,9 @@ static void COMMS_Handler_Task(void const *argument) {
   * @param  msgId: Message ID to respond to
   * @retval None
   */
-static void COMMS_SendPingResponse(const char* msgId) {
+static void COMMS_SendPingResponse(const char* msg_id) {
   /* Format ping response */
-  int length = snprintf(txBuffer, TX_BUFFER_SIZE,
+  uint16_t length = snprintf(txBuffer, TX_BUFFER_SIZE,
     "{"
       "\"type\":\"resp\","
       "\"id\":\"%s\","
@@ -119,7 +119,7 @@ static void COMMS_SendPingResponse(const char* msgId) {
         "\"message\":\"pong\""
       "}"
     "}\r\n",
-    msgId);
+    msg_id);
 
   /* Send response */
   VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
@@ -128,25 +128,25 @@ static void COMMS_SendPingResponse(const char* msgId) {
 /**
  * @brief Send light intensity response
  * @param msgId Original message ID
- * @param lightId Light source ID (or 0 for all)
+ * @param light_id Light source ID (or 0 for all)
  * @retval None
  */
-static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId) {
+static void COMMS_SendLightIntensityResponse(const char* msg_id, uint8_t light_id) {
   uint8_t intensities[3] = {0, 0, 0};
   VAL_Status status = VAL_ERROR;
 
-  if (lightId == 0) {
+  if (light_id == 0) {
     /* Get all light intensities */
     status = SYS_Coordinator_GetAllLightIntensities(intensities);
-  } else if (lightId >= 1 && lightId <= 3) {
+  } else if (light_id >= 1 && light_id <= 3) {
     /* Get single light intensity */
-    status = SYS_Coordinator_GetLightIntensity(lightId, &intensities[lightId - 1]);
+    status = SYS_Coordinator_GetLightIntensity(light_id, &intensities[light_id - 1]);
   }
 
   /* Format response */
-  int length;
+  uint16_t length;
   if (status == VAL_OK) {
-    if (lightId == 0) {
+    if (light_id == 0) {
       length = snprintf(txBuffer, TX_BUFFER_SIZE,
         "{"
           "\"type\":\"resp\","
@@ -158,7 +158,7 @@ static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId)
             "\"intensities\":[%u, %u, %u]"
           "}"
         "}\r\n",
-        msgId, intensities[0], intensities[1], intensities[2]);
+        msg_id, intensities[0], intensities[1], intensities[2]);
     } else {
       length = snprintf(txBuffer, TX_BUFFER_SIZE,
         "{"
@@ -172,7 +172,7 @@ static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId)
             "\"intensity\":%u"
           "}"
         "}\r\n",
-        msgId, lightId, intensities[lightId - 1]);
+        msg_id, light_id, intensities[light_id - 1]);
     }
   } else {
     /* Error response */
@@ -187,8 +187,8 @@ static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId)
           "\"message\":\"Failed to retrieve light intensity\""
         "}"
       "}\r\n",
-      msgId,
-      (lightId == 0) ? "get_all" : "get");
+      msg_id,
+      (light_id == 0) ? "get_all" : "get");
   }
 
   /* Send response */
@@ -201,8 +201,8 @@ static void COMMS_SendLightIntensityResponse(const char* msgId, uint8_t lightId)
  * @param status Operation status
  * @retval None
  */
-static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status) {
-  int length;
+static void COMMS_SendSetLightResponse(const char* msg_id, VAL_Status status) {
+  uint16_t length;
 
   if (status == VAL_OK) {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
@@ -215,7 +215,7 @@ static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status) {
           "\"status\":\"ok\""
         "}"
       "}\r\n",
-      msgId);
+      msg_id);
   } else {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
       "{"
@@ -228,7 +228,7 @@ static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status) {
           "\"message\":\"Failed to set light intensity\""
         "}"
       "}\r\n",
-      msgId);
+      msg_id);
   }
 
   /* Send response */
@@ -241,8 +241,8 @@ static void COMMS_SendSetLightResponse(const char* msgId, VAL_Status status) {
  * @param status Operation status
  * @retval None
  */
-static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status) {
-  int length;
+static void COMMS_SendSetAllLightsResponse(const char* msg_id, VAL_Status status) {
+  uint16_t length;
 
   if (status == VAL_OK) {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
@@ -255,7 +255,7 @@ static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status)
           "\"status\":\"ok\""
         "}"
       "}\r\n",
-      msgId);
+      msg_id);
   } else {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
       "{"
@@ -268,7 +268,7 @@ static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status)
           "\"message\":\"Failed to set light intensities\""
         "}"
       "}\r\n",
-      msgId);
+      msg_id);
   }
 
   /* Send response */
@@ -278,20 +278,20 @@ static void COMMS_SendSetAllLightsResponse(const char* msgId, VAL_Status status)
 /**
  * @brief Send sensor data response for a specific light
  * @param msgId Original message ID
- * @param lightId Light source ID
+ * @param light_id Light source ID
  * @retval None
  */
-static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId) {
-  LightSensorData_t sensorData;
+static void COMMS_SendSensorDataResponse(const char* msg_id, uint8_t light_id) {
+  LightSensorData_t sensor_data;
   VAL_Status status = VAL_ERROR;
 
   /* Get sensor data for the specified light */
-  if (lightId >= 1 && lightId <= 3) {
-    status = SYS_Coordinator_GetLightSensorData(lightId, &sensorData);
+  if (light_id >= 1 && light_id <= 3) {
+    status = SYS_Coordinator_GetLightSensorData(light_id, &sensor_data);
   }
 
   /* Format response */
-  int length;
+  uint16_t length;
   if (status == VAL_OK) {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
       "{"
@@ -308,10 +308,10 @@ static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId) {
           "}"
         "}"
       "}\r\n",
-      msgId, lightId, sensorData.current, sensorData.temperature);
+      msg_id, light_id, sensor_data.current, sensor_data.temperature);
   } else {
     /* Error response */
-    COMMS_SendErrorResponse(msgId, "status", "get_sensors",
+    COMMS_SendErrorResponse(msg_id, "status", "get_sensors",
                           "Failed to retrieve sensor data");
     return;
   }
@@ -325,15 +325,15 @@ static void COMMS_SendSensorDataResponse(const char* msgId, uint8_t lightId) {
  * @param msgId Original message ID
  * @retval None
  */
-static void COMMS_SendAllSensorDataResponse(const char* msgId) {
-  LightSensorData_t sensorData[3];
+static void COMMS_SendAllSensorDataResponse(const char* msg_id) {
+  LightSensorData_t sensor_data[3];
   VAL_Status status;
 
   /* Get sensor data for all lights */
-  status = SYS_Coordinator_GetAllLightSensorData(sensorData);
+  status = SYS_Coordinator_GetAllLightSensorData(sensor_data);
 
   /* Format response */
-  int length;
+  uint16_t length;
   if (status == VAL_OK) {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
       "{"
@@ -350,13 +350,13 @@ static void COMMS_SendAllSensorDataResponse(const char* msgId) {
           "]"
         "}"
       "}\r\n",
-      msgId,
-      sensorData[0].current, sensorData[0].temperature,
-      sensorData[1].current, sensorData[1].temperature,
-      sensorData[2].current, sensorData[2].temperature);
+      msg_id,
+      sensor_data[0].current, sensor_data[0].temperature,
+      sensor_data[1].current, sensor_data[1].temperature,
+      sensor_data[2].current, sensor_data[2].temperature);
   } else {
     /* Error response */
-    COMMS_SendErrorResponse(msgId, "status", "get_all_sensors",
+    COMMS_SendErrorResponse(msg_id, "status", "get_all_sensors",
                           "Failed to retrieve sensor data");
     return;
   }
@@ -368,12 +368,12 @@ static void COMMS_SendAllSensorDataResponse(const char* msgId) {
 /**
  * @brief Send response for clear alarm command
  * @param msgId Original message ID
- * @param lightId Light source ID
+ * @param light_id Light source ID
  * @param status Operation status
  * @retval None
  */
-static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL_Status status) {
-  int length;
+static void COMMS_SendAlarmClearResponse(const char* msg_id, uint8_t light_id, VAL_Status status) {
+  uint16_t length;
 
   if (status == VAL_OK) {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
@@ -387,7 +387,7 @@ static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL
           "\"message\":\"Alarm cleared for light %u\""
         "}"
       "}\r\n",
-      msgId, lightId);
+      msg_id, light_id);
   } else {
     length = snprintf(txBuffer, TX_BUFFER_SIZE,
       "{"
@@ -400,7 +400,7 @@ static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL
           "\"message\":\"Failed to clear alarm for light %u\""
         "}"
       "}\r\n",
-      msgId, lightId);
+      msg_id, light_id);
   }
 
   /* Send response */
@@ -412,7 +412,7 @@ static void COMMS_SendAlarmClearResponse(const char* msgId, uint8_t lightId, VAL
  * @param msgId Original message ID
  * @retval None
  */
-static void COMMS_SendAlarmStatusResponse(const char* msgId) {
+static void COMMS_SendAlarmStatusResponse(const char* msg_id) {
   uint8_t alarms[3] = {0, 0, 0};
   VAL_Status status;
 
@@ -431,39 +431,39 @@ static void COMMS_SendAlarmStatusResponse(const char* msgId) {
         "\"data\":{"
           "\"status\":\"ok\","
           "\"active_alarms\":["
-      , msgId);
+      , msg_id);
 
     /* Add active alarms to the response */
-    int alarmCount = 0;
+    int alarm_count = 0;
 
     for (int i = 0; i < 3; i++) {
       if (alarms[i] != 0) {
         /* Format alarm entry */
-        if (alarmCount > 0) {
+        if (alarm_count > 0) {
           /* Add comma separator for subsequent entries */
           length += snprintf(txBuffer + length, TX_BUFFER_SIZE - length, ",");
         }
 
-        const char* alarmType = "unknown";
+        const char* alarm_type = "unknown";
         switch (alarms[i]) {
           case 0:
-            alarmType = "none";
+            alarm_type = "none";
             break;
           case 1:
-            alarmType = "over_current";
+            alarm_type = "over_current";
             break;
           case 2:
-            alarmType = "over_temperature";
+            alarm_type = "over_temperature";
             break;
           default:
-            alarmType = "system_error";
+            alarm_type = "system_error";
             break;
         }
 
         length += snprintf(txBuffer + length, TX_BUFFER_SIZE - length,
-          "{\"light\":%d,\"code\":\"%s\"}", i + 1, alarmType);
+          "{\"light\":%d,\"code\":\"%s\"}", i + 1, alarm_type);
 
-        alarmCount++;
+        alarm_count++;
       }
     }
 
@@ -475,7 +475,7 @@ static void COMMS_SendAlarmStatusResponse(const char* msgId) {
 
   } else {
     /* Error response */
-    COMMS_SendErrorResponse(msgId, "alarm", "status", "Failed to retrieve alarm status");
+    COMMS_SendErrorResponse(msg_id, "alarm", "status", "Failed to retrieve alarm status");
     return;
   }
 
@@ -491,8 +491,8 @@ static void COMMS_SendAlarmStatusResponse(const char* msgId) {
  * @param message Error message
  * @retval None
  */
-static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const char* action, const char* message) {
-  int length = snprintf(txBuffer, TX_BUFFER_SIZE,
+static void COMMS_SendErrorResponse(const char* msg_id, const char* topic, const char* action, const char* message) {
+  uint16_t length = snprintf(txBuffer, TX_BUFFER_SIZE,
     "{"
       "\"type\":\"resp\","
       "\"id\":\"%s\","
@@ -503,10 +503,59 @@ static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const 
         "\"message\":\"%s\""
       "}"
     "}\r\n",
-    msgId, topic, action, message);
+    msg_id, topic, action, message);
 
   /* Send response */
   VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
+}
+
+/**
+ * @brief Send alarm event notification
+ * @param light_id Light source ID that triggered the alarm (1-3)
+ * @param errorType Type of error that caused the alarm
+ * @param value Measured value that caused the alarm
+ * @retval VAL_Status VAL_OK if successful, VAL_ERROR otherwise
+ */
+VAL_Status COMMS_SendAlarmEvent(uint8_t light_id, uint8_t error_type, float value) {
+  const char* error_code_str;
+  char event_id[16];
+  int length;
+
+  /* Generate event ID with timestamp */
+  snprintf(event_id, sizeof(event_id), "evt-%lu", HAL_GetTick());
+
+  /* Convert error type to string */
+  switch (error_type) {
+    case 1:
+      error_code_str = "over_current";
+      break;
+    case 2:
+      error_code_str = "over_temperature";
+      break;
+    default:
+      error_code_str = "system_error";
+      break;
+  }
+
+  /* Format event message */
+  length = snprintf(txBuffer, TX_BUFFER_SIZE,
+    "{"
+      "\"type\":\"event\","
+      "\"id\":\"%s\","
+      "\"topic\":\"alarm\","
+      "\"action\":\"triggered\","
+      "\"data\":{"
+        "\"timestamp\":\"%lu\","
+        "\"code\":\"%s\","
+        "\"source\":\"light_%u\","
+        "\"value\":%.1f,"
+        "\"status\":\"disabled\""
+      "}"
+    "}\r\n",
+    event_id, HAL_GetTick(), error_code_str, light_id, value);
+
+  /* Send event message */
+  return VAL_Serial_Send((uint8_t*)txBuffer, length, 1000);
 }
 
 /**
@@ -514,9 +563,9 @@ static void COMMS_SendErrorResponse(const char* msgId, const char* topic, const 
   * @param  jsonStr: JSON command string
   * @retval None
   */
-static void COMMS_ProcessJsonCommand(const char* jsonStr) {
+static void COMMS_ProcessJsonCommand(const char* json_str) {
   /* Parse JSON message */
-  lwjson_parse(&jsonParser, jsonStr);
+  lwjson_parse(&jsonParser, json_str);
 
   /* Get first token - this is the root object */
   const lwjson_token_t* root = lwjson_get_first_token(&jsonParser);
@@ -526,7 +575,7 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
   }
 
   /* Retrieve message details */
-  char msgId[64] = "unknown";
+  char msg_id[64] = "unknown";
   const char* type = NULL;
   const char* topic = NULL;
   const char* action = NULL;
@@ -541,8 +590,8 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
         size_t id_len;
         const char* tmp = lwjson_get_val_string(token, &id_len);
         if (tmp != NULL) {
-          strncpy(msgId, tmp, id_len);
-          msgId[id_len] = '\0';
+          strncpy(msg_id, tmp, id_len);
+          msg_id[id_len] = '\0';
         }
       } else if (strncmp(token->token_name, "type", token->token_name_len) == 0 &&
                  token->type == LWJSON_TYPE_STRING) {
@@ -566,13 +615,13 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
     if (topic_len == 6 && strncmp(topic, "system", 6) == 0 &&
         action_len == 4 && strncmp(action, "ping", 4) == 0) {
       /* Send ping response */
-      COMMS_SendPingResponse(msgId);
+      COMMS_SendPingResponse(msg_id);
     }
     /* Check for light topic commands */
     else if (topic_len == 5 && strncmp(topic, "light", 5) == 0) {
       if (action_len == 3 && strncmp(action, "get", 3) == 0) {
         /* Check for light ID in data */
-        uint8_t lightId = 0;
+        uint8_t light_id = 0;
         token = root->u.first_child;
         while (token != NULL) {
           if (token->token_name != NULL &&
@@ -580,16 +629,16 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
               token->type == LWJSON_TYPE_OBJECT) {
 
             /* Search for "id" inside data */
-            const lwjson_token_t* dataToken = token->u.first_child;
-            while (dataToken != NULL) {
-              if (dataToken->token_name != NULL &&
-                  strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
-                  dataToken->type == LWJSON_TYPE_NUM_INT) {
+            const lwjson_token_t* data_token = token->u.first_child;
+            while (data_token != NULL) {
+              if (data_token->token_name != NULL &&
+                  strncmp(data_token->token_name, "id", data_token->token_name_len) == 0 &&
+                  data_token->type == LWJSON_TYPE_NUM_INT) {
 
-                lightId = (uint8_t)dataToken->u.num_int;
+                light_id = (uint8_t)data_token->u.num_int;
                 break;
               }
-              dataToken = dataToken->next;
+              data_token = data_token->next;
             }
             break;
           }
@@ -597,18 +646,18 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
         }
 
         /* Send response */
-        COMMS_SendLightIntensityResponse(msgId, lightId);
+        COMMS_SendLightIntensityResponse(msg_id, light_id);
       }
       else if (action_len == 7 && strncmp(action, "get_all", 7) == 0) {
         /* Get intensities for all lights */
-        COMMS_SendLightIntensityResponse(msgId, 0);
+        COMMS_SendLightIntensityResponse(msg_id, 0);
       }
       else if (action_len == 3 && strncmp(action, "set", 3) == 0) {
         /* Set light intensity */
-        uint8_t lightId = 0;
+        uint8_t light_id = 0;
         uint8_t intensity = 0;
-        bool foundId = false;
-        bool foundIntensity = false;
+        bool found_id = false;
+        bool found_intensity = false;
 
         /* Find data object */
         token = root->u.first_child;
@@ -618,21 +667,21 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
               token->type == LWJSON_TYPE_OBJECT) {
 
             /* Search for "id" and "intensity" inside data */
-            const lwjson_token_t* dataToken = token->u.first_child;
-            while (dataToken != NULL) {
-              if (dataToken->token_name != NULL) {
-                if (strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
-                    dataToken->type == LWJSON_TYPE_NUM_INT) {
-                  lightId = (uint8_t)dataToken->u.num_int;
-                  foundId = true;
+            const lwjson_token_t* data_token = token->u.first_child;
+            while (data_token != NULL) {
+              if (data_token->token_name != NULL) {
+                if (strncmp(data_token->token_name, "id", data_token->token_name_len) == 0 &&
+                    data_token->type == LWJSON_TYPE_NUM_INT) {
+                  light_id = (uint8_t)data_token->u.num_int;
+                  found_id = true;
                 }
-                else if (strncmp(dataToken->token_name, "intensity", dataToken->token_name_len) == 0 &&
-                         dataToken->type == LWJSON_TYPE_NUM_INT) {
-                  intensity = (uint8_t)dataToken->u.num_int;
-                  foundIntensity = true;
+                else if (strncmp(data_token->token_name, "intensity", data_token->token_name_len) == 0 &&
+                         data_token->type == LWJSON_TYPE_NUM_INT) {
+                  intensity = (uint8_t)data_token->u.num_int;
+                  found_intensity = true;
                 }
               }
-              dataToken = dataToken->next;
+              data_token = data_token->next;
             }
             break;
           }
@@ -641,17 +690,17 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
 
         /* Set light intensity if parameters are valid */
         VAL_Status status = VAL_ERROR;
-        if (foundId && foundIntensity) {
-          status = SYS_Coordinator_SetLightIntensity(lightId, intensity);
+        if (found_id && found_intensity) {
+          status = SYS_Coordinator_SetLightIntensity(light_id, intensity);
         }
 
         /* Send response */
-        COMMS_SendSetLightResponse(msgId, status);
+        COMMS_SendSetLightResponse(msg_id, status);
       }
       else if (action_len == 7 && strncmp(action, "set_all", 7) == 0) {
         /* Set all light intensities */
         uint8_t intensities[3] = {0, 0, 0};
-        bool foundIntensities = false;
+        bool found_intensities = false;
 
         /* Find data object */
         token = root->u.first_child;
@@ -661,29 +710,29 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
               token->type == LWJSON_TYPE_OBJECT) {
 
             /* Search for "intensities" array inside data */
-            const lwjson_token_t* dataToken = token->u.first_child;
-            while (dataToken != NULL) {
-              if (dataToken->token_name != NULL &&
-                  strncmp(dataToken->token_name, "intensities", dataToken->token_name_len) == 0 &&
-                  dataToken->type == LWJSON_TYPE_ARRAY) {
+            const lwjson_token_t* data_token = token->u.first_child;
+            while (data_token != NULL) {
+              if (data_token->token_name != NULL &&
+                  strncmp(data_token->token_name, "intensities", data_token->token_name_len) == 0 &&
+                  data_token->type == LWJSON_TYPE_ARRAY) {
 
                 /* Parse intensities array */
-                const lwjson_token_t* arrayToken = dataToken->u.first_child;
+                const lwjson_token_t* array_token = data_token->u.first_child;
                 int index = 0;
 
-                while (arrayToken != NULL && index < 3) {
-                  if (arrayToken->type == LWJSON_TYPE_NUM_INT) {
-                    intensities[index++] = (uint8_t)arrayToken->u.num_int;
+                while (array_token != NULL && index < 3) {
+                  if (array_token->type == LWJSON_TYPE_NUM_INT) {
+                    intensities[index++] = (uint8_t)array_token->u.num_int;
                   }
-                  arrayToken = arrayToken->next;
+                  array_token = array_token->next;
                 }
 
                 if (index == 3) {
-                  foundIntensities = true;
+                  found_intensities = true;
                 }
                 break;
               }
-              dataToken = dataToken->next;
+              data_token = data_token->next;
             }
             break;
           }
@@ -692,19 +741,19 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
 
         /* Set all light intensities if parameters are valid */
         VAL_Status status = VAL_ERROR;
-        if (foundIntensities) {
+        if (found_intensities) {
           status = SYS_Coordinator_SetAllLightIntensities(intensities);
         }
 
         /* Send response */
-        COMMS_SendSetAllLightsResponse(msgId, status);
+        COMMS_SendSetAllLightsResponse(msg_id, status);
       }
     }
     /* Check for status topic commands */
     else if (topic_len == 6 && strncmp(topic, "status", 6) == 0) {
       if (action_len == 11 && strncmp(action, "get_sensors", 11) == 0) {
         /* Get sensor data for a specific light */
-        uint8_t lightId = 0;
+        uint8_t light_id = 0;
         token = root->u.first_child;
         while (token != NULL) {
           if (token->token_name != NULL &&
@@ -712,42 +761,42 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
               token->type == LWJSON_TYPE_OBJECT) {
 
             /* Search for "id" inside data */
-            const lwjson_token_t* dataToken = token->u.first_child;
-            while (dataToken != NULL) {
-              if (dataToken->token_name != NULL &&
-                  strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
-                  dataToken->type == LWJSON_TYPE_NUM_INT) {
+            const lwjson_token_t* data_token = token->u.first_child;
+            while (data_token != NULL) {
+              if (data_token->token_name != NULL &&
+                  strncmp(data_token->token_name, "id", data_token->token_name_len) == 0 &&
+                  data_token->type == LWJSON_TYPE_NUM_INT) {
 
-                lightId = (uint8_t)dataToken->u.num_int;
+                light_id = (uint8_t)data_token->u.num_int;
                 break;
               }
-              dataToken = dataToken->next;
+              data_token = data_token->next;
             }
             break;
           }
           token = token->next;
         }
 
-        if (lightId >= 1 && lightId <= 3) {
+        if (light_id >= 1 && light_id <= 3) {
           /* Send sensor data response for specific light */
-          COMMS_SendSensorDataResponse(msgId, lightId);
+          COMMS_SendSensorDataResponse(msg_id, light_id);
         } else {
           /* Invalid light ID */
-          COMMS_SendErrorResponse(msgId, "status", "get_sensors", "Invalid light ID");
+          COMMS_SendErrorResponse(msg_id, "status", "get_sensors", "Invalid light ID");
         }
       }
       else if (action_len == 15 && strncmp(action, "get_all_sensors", 15) == 0) {
         /* Get sensor data for all lights */
-        COMMS_SendAllSensorDataResponse(msgId);
+        COMMS_SendAllSensorDataResponse(msg_id);
       }
     }
     /* Check for alarm topic commands */
     else if (topic_len == 5 && strncmp(topic, "alarm", 5) == 0) {
       if (action_len == 5 && strncmp(action, "clear", 5) == 0) {
         /* Clear alarm for specific light(s) */
-        uint8_t lightId = 0;
-        bool singleLight = false;
-        bool validCommand = false;
+        uint8_t light_id = 0;
+        bool single_light = false;
+        bool valid_command = false;
 
         /* Find data object */
         token = root->u.first_child;
@@ -757,48 +806,48 @@ static void COMMS_ProcessJsonCommand(const char* jsonStr) {
               token->type == LWJSON_TYPE_OBJECT) {
 
             /* Check for single light ID or array of light IDs */
-            const lwjson_token_t* dataToken = token->u.first_child;
-            while (dataToken != NULL) {
-              if (dataToken->token_name != NULL) {
+            const lwjson_token_t* data_token = token->u.first_child;
+            while (data_token != NULL) {
+              if (data_token->token_name != NULL) {
                 /* Single light ID */
-                if (strncmp(dataToken->token_name, "id", dataToken->token_name_len) == 0 &&
-                    dataToken->type == LWJSON_TYPE_NUM_INT) {
-                  lightId = (uint8_t)dataToken->u.num_int;
-                  singleLight = true;
-                  validCommand = true;
+                if (strncmp(data_token->token_name, "id", data_token->token_name_len) == 0 &&
+                    data_token->type == LWJSON_TYPE_NUM_INT) {
+                  light_id = (uint8_t)data_token->u.num_int;
+                  single_light = true;
+                  valid_command = true;
                   break;
                 }
                 /* Array of light IDs - only handle first one for this implementation */
-                else if (strncmp(dataToken->token_name, "lights", dataToken->token_name_len) == 0 &&
-                         dataToken->type == LWJSON_TYPE_ARRAY) {
-                  const lwjson_token_t* arrayToken = dataToken->u.first_child;
-                  if (arrayToken != NULL && arrayToken->type == LWJSON_TYPE_NUM_INT) {
-                    lightId = (uint8_t)arrayToken->u.num_int;
-                    singleLight = true;
-                    validCommand = true;
+                else if (strncmp(data_token->token_name, "lights", data_token->token_name_len) == 0 &&
+                         data_token->type == LWJSON_TYPE_ARRAY) {
+                  const lwjson_token_t* array_token = data_token->u.first_child;
+                  if (array_token != NULL && array_token->type == LWJSON_TYPE_NUM_INT) {
+                    light_id = (uint8_t)array_token->u.num_int;
+                    single_light = true;
+                    valid_command = true;
                     break;
                   }
                 }
               }
-              dataToken = dataToken->next;
+              data_token = data_token->next;
             }
             break;
           }
           token = token->next;
         }
 
-        if (validCommand && singleLight) {
+        if (valid_command && single_light) {
           /* Clear alarm for a specific light */
-          VAL_Status status = SYS_Coordinator_ClearLightAlarm(lightId);
-          COMMS_SendAlarmClearResponse(msgId, lightId, status);
+          VAL_Status status = SYS_Coordinator_ClearLightAlarm(light_id);
+          COMMS_SendAlarmClearResponse(msg_id, light_id, status);
         } else {
           /* Invalid command */
-          COMMS_SendErrorResponse(msgId, "alarm", "clear", "Invalid parameters");
+          COMMS_SendErrorResponse(msg_id, "alarm", "clear", "Invalid parameters");
         }
       }
       else if (action_len == 6 && strncmp(action, "status", 6) == 0) {
     	/* Get alarm status for all lights */
-        COMMS_SendAlarmStatusResponse(msgId);
+        COMMS_SendAlarmStatusResponse(msg_id);
       }
     }
   }
