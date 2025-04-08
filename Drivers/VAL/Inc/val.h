@@ -19,6 +19,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include "stm32l4xx_hal.h"
 #include "val_status.h"
 #include "val_serial_comms.h"
 #include "val_pwm.h"
@@ -35,6 +36,9 @@ extern "C" {
 static inline VAL_Status VAL_Init(void) {
   VAL_Status status;
   
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
   /* Initialize system clock first */
   status = VAL_SysClock_Init();
   if (status != VAL_OK) {
@@ -46,13 +50,7 @@ static inline VAL_Status VAL_Init(void) {
   if (status != VAL_OK) {
     return status;
   }
-  
-//  /* Initialize serial communication */
-//  status = VAL_Serial_Init(NULL);
-//  if (status != VAL_OK) {
-//    return status;
-//  }
-  
+
   /* Initialize PWM */
   status = VAL_PWM_Init();
   if (status != VAL_OK) {
@@ -66,6 +64,7 @@ static inline VAL_Status VAL_Init(void) {
   }
   
   /* Initialize data storage */
+  // TODO
 //  status = VAL_DataStore_Init();
 //  if (status != VAL_OK) {
 //    return status;
@@ -83,6 +82,7 @@ static inline VAL_Status VAL_DeInit(void) {
   VAL_Status moduleStatus;
   
   /* De-initialize data storage */
+  // TODO
 //  moduleStatus = VAL_DataStore_DeInit();
 //  if (moduleStatus != VAL_OK) {
 //    status = moduleStatus;
