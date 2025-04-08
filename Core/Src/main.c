@@ -46,7 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-static TaskHandle_t initTaskHandle = NULL;
+static TaskHandle_t init_task_handle = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,9 +75,9 @@ static void System_Init(void) {
 
   /* Create initialization task to complete initialization after FreeRTOS starts */
   osThreadDef(InitTask, Init_Task, osPriorityHigh, 0, 256);
-  initTaskHandle = osThreadCreate(osThread(InitTask), NULL);
+  init_task_handle = osThreadCreate(osThread(InitTask), NULL);
 
-  if (initTaskHandle == NULL) {
+  if (init_task_handle == NULL) {
     System_Error();
   }
 }
@@ -91,7 +91,7 @@ static void Init_Task(void *argument) {
   VAL_Status status;
 
   /* Initialize communications handler */
-  status = COMMS_Handler_Init();
+  status = COMMS_Handler_Handler_Init();
   if (status != VAL_OK) {
     System_Error();
   }

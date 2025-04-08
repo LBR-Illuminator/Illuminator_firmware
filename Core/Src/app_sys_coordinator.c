@@ -247,7 +247,7 @@ static void SYS_Coordinator_Task(void const *argument) {
                 }
 
                 /* Send alarm event notification */
-                COMMS_SendAlarmEvent(i + 1, light_alarms[i], value);
+                COMMS_Handler_SendAlarmEvent(i + 1, light_alarms[i], value);
 
                 /* Log the alarm event */
 //                VAL_Serial_Printf("Alarm triggered for light %d: type %d, value %.1f\n",

@@ -42,8 +42,8 @@ typedef enum {
 } AdcChannelIndex;
 
 /* Private variables ---------------------------------------------------------*/
-static volatile uint32_t adcBuffer[ADC_BUFFER_SIZE];
-static volatile uint8_t conversionComplete = 0;
+static volatile uint32_t adc_buffer[ADC_BUFFER_SIZE];
+static volatile uint8_t conversion_complete = 0;
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -73,7 +73,7 @@ VAL_Status VAL_Analog_Init(void) {
   __HAL_ADC_CLEAR_FLAG(&hadc1, (ADC_FLAG_EOC | ADC_FLAG_EOS | ADC_FLAG_OVR));
   
   /* Start ADC in DMA mode */
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE) != HAL_OK) {
+  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_SIZE) != HAL_OK) {
     VAL_Serial_Printf("Failed to start ADC DMA\r\n");
     return VAL_ERROR;
   }
@@ -100,7 +100,7 @@ VAL_Status VAL_Analog_GetCurrent(uint8_t lightId, float* current) {
   AdcChannelIndex channelIndex = CHANNEL_CURRENT_1 + (lightId - 1);
   
   /* Get raw ADC value */
-  uint32_t adcValue = adcBuffer[channelIndex];
+  uint32_t adcValue = adc_buffer[channelIndex];
   
   /* Convert to voltage */
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REFERENCE;
@@ -127,7 +127,7 @@ VAL_Status VAL_Analog_GetTemperature(uint8_t lightId, float* temperature) {
   AdcChannelIndex channelIndex = CHANNEL_TEMP_1 + (lightId - 1);
   
   /* Get raw ADC value */
-  uint32_t adcValue = adcBuffer[channelIndex];
+  uint32_t adcValue = adc_buffer[channelIndex];
   
   /* Convert to voltage */
   float voltage = (adcValue / ADC_RESOLUTION) * ADC_REFERENCE;
@@ -242,7 +242,7 @@ void HAL_ADC_ErrorCallback(ADC_HandleTypeDef* hadc) {
   HAL_Delay(10);
 
   // Restart ADC with DMA
-  HAL_ADC_Start_DMA(hadc, (uint32_t*)adcBuffer, ADC_BUFFER_SIZE);
+  HAL_ADC_Start_DMA(hadc, (uint32_t*)adc_buffer, ADC_BUFFER_SIZE);
 }
 
 /**

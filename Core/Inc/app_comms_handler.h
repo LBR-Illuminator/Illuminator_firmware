@@ -18,7 +18,7 @@ extern "C" {
 #include "val_status.h"
 
 /* Exported functions prototypes ---------------------------------------------*/
-VAL_Status COMMS_Handler_Init(void);
+VAL_Status COMMS_Handler_Handler_Init(void);
 
 /**
  * @brief Send alarm event notification
@@ -27,7 +27,7 @@ VAL_Status COMMS_Handler_Init(void);
  * @param value Measured value that caused the alarm
  * @retval VAL_Status VAL_OK if successful, VAL_ERROR otherwise
  */
-VAL_Status COMMS_SendAlarmEvent(uint8_t lightId, uint8_t errorType, float value);
+VAL_Status COMMS_Handler_SendAlarmEvent(uint8_t lightId, uint8_t errorType, float value);
 
 #ifdef __cplusplus
 }

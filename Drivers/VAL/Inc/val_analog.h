@@ -19,17 +19,17 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 typedef struct {
-  uint8_t lightId;       /* Light ID (1-3) */
+  uint8_t light_id;       /* Light ID (1-3) */
   float current;         /* Current in milliamps */
   float temperature;     /* Temperature in degrees Celsius */
 } LightSensorData;
 
 /* Exported functions prototypes ---------------------------------------------*/
 VAL_Status VAL_Analog_Init(void);
-VAL_Status VAL_Analog_GetCurrent(uint8_t lightId, float* current);
-VAL_Status VAL_Analog_GetTemperature(uint8_t lightId, float* temperature);
-VAL_Status VAL_Analog_GetSensorData(uint8_t lightId, LightSensorData* sensorData);
-VAL_Status VAL_Analog_GetAllSensorData(LightSensorData sensorData[]);
+VAL_Status VAL_Analog_GetCurrent(uint8_t light_id, float* current);
+VAL_Status VAL_Analog_GetTemperature(uint8_t light_id, float* temperature);
+VAL_Status VAL_Analog_GetSensorData(uint8_t light_id, LightSensorData* sensor_data);
+VAL_Status VAL_Analog_GetAllSensorData(LightSensorData sensor_data[]);
 VAL_Status VAL_Analog_DeInit(void);
 
 #ifdef __cplusplus

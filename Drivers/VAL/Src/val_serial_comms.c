@@ -23,9 +23,9 @@
 
 /* Private variables ---------------------------------------------------------*/
 static uint8_t txBuffer[SERIAL_TX_BUFFER_SIZE];
-static volatile uint8_t txBusy = 0;
-static SerialRxCallback rxCallback = NULL;
-static uint8_t rxBuffer[1];  // Single byte buffer for continuous reception
+static volatile uint8_t tx_busy = 0;
+static SerialRxCallback rx_callback = NULL;
+static uint8_t rx_buffer[1];  // Single byte buffer for continuous reception
 
 /* Private function prototypes -----------------------------------------------*/
 static void StartReceive(void);
@@ -42,10 +42,10 @@ VAL_Status VAL_Serial_Init(SerialRxCallback callback) {
   MX_USART1_UART_Init();
 
   /* Store callback function */
-  rxCallback = callback;
+  rx_callback = callback;
 
   /* Start continuous reception if callback is provided */
-  if (rxCallback != NULL) {
+  if (rx_callback != NULL) {
     StartReceive();
   }
 
@@ -63,16 +63,16 @@ VAL_Status VAL_Serial_Send(const uint8_t* data, uint16_t length, uint32_t timeou
   HAL_StatusTypeDef status;
 
   /* Check if previous transmission is ongoing */
-  if (txBusy) {
+  if (tx_busy) {
     return VAL_BUSY;
   }
 
-  txBusy = 1;
+  tx_busy = 1;
 
   /* Send data via UART */
   status = HAL_UART_Transmit(&huart1, (uint8_t*)data, length, timeout);
 
-  txBusy = 0;
+  tx_busy = 0;
 
   return (status == HAL_OK) ? VAL_OK : VAL_ERROR;
 }
@@ -88,7 +88,7 @@ VAL_Status VAL_Serial_Printf(const char* format, ...) {
   int length;
 
   /* Check if previous transmission is ongoing */
-  if (txBusy) {
+  if (tx_busy) {
     return VAL_BUSY;
   }
 
@@ -110,7 +110,7 @@ VAL_Status VAL_Serial_Printf(const char* format, ...) {
   * @retval uint8_t: 1 if busy, 0 if ready
   */
 uint8_t VAL_Serial_IsBusy(void) {
-  return txBusy;
+  return tx_busy;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -121,7 +121,7 @@ uint8_t VAL_Serial_IsBusy(void) {
   */
 static void StartReceive(void) {
   /* Detailed error checking for receive initialization */
-  HAL_StatusTypeDef status = HAL_UART_Receive_IT(&huart1, rxBuffer, 1);
+  HAL_StatusTypeDef status = HAL_UART_Receive_IT(&huart1, rx_buffer, 1);
 
   switch(status) {
     case HAL_OK:
@@ -150,12 +150,12 @@ static void StartReceive(void) {
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
     /* Call user callback with received byte */
-    if (rxCallback != NULL) {
-      rxCallback(rxBuffer[0]);
+    if (rx_callback != NULL) {
+      rx_callback(rx_buffer[0]);
     }
 
     /* Restart reception for next byte */
-    HAL_UART_Receive_IT(&huart1, rxBuffer, 1);
+    HAL_UART_Receive_IT(&huart1, rx_buffer, 1);
   }
 }
 
@@ -167,6 +167,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART1) {
     /* Restart reception on error */
-    HAL_UART_Receive_IT(&huart1, rxBuffer, 1);
+    HAL_UART_Receive_IT(&huart1, rx_buffer, 1);
   }
 }
