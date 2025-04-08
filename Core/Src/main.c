@@ -118,10 +118,12 @@ static void System_Error(void) {
   /* Initialization error occurred */
   while (1) {
     /* Toggle LED rapidly to indicate error */
-    HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
-    HAL_Delay(100);
+	VAL_Pins_ToggleBoardLED();
+	VAL_SysClock_Delay(100);
   }
 }
+
+
 
 /**
   * @brief  This function is executed in case of error occurrence.
@@ -130,7 +132,7 @@ static void System_Error(void) {
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* User can add his own implementation to report the error return state */
   __disable_irq();
   while (1)
   {
