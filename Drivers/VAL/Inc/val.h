@@ -27,6 +27,7 @@ extern "C" {
 #include "val_data_store.h"
 #include "val_pins.h"
 #include "val_sys_clock.h"
+#include "val_timers.h"
 
 /* Exported functions prototypes ---------------------------------------------*/
 /**
