@@ -23,7 +23,7 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 typedef struct {
-    uint8_t lightId;    // Light source ID (1-3)
+    uint8_t light_id;    // Light source ID (1-3)
     uint8_t intensity;  // Current intensity (0-100)
 } LightStatus_t;
 

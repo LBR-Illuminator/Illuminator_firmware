@@ -34,19 +34,19 @@ typedef enum {
 
 /* Status log structure */
 typedef struct {
-  uint8_t activeErrors;          /* Bitmap of lights with active errors (bits 0-2) */
-  uint8_t errorTypes[3];         /* Error type for each light (0-2) */
-  float errorValues[3];          /* Measured values that caused errors */
-  uint32_t errorTimestamps[3];   /* Timestamps when errors occurred */
+  uint8_t active_errors;          /* Bitmap of lights with active errors (bits 0-2) */
+  uint8_t error_types[3];         /* Error type for each light (0-2) */
+  float error_values[3];          /* Measured values that caused errors */
+  uint32_t error_timestamps[3];   /* Timestamps when errors occurred */
 } StatusLog_t;
 
 /* Error log entry */
 typedef struct {
   uint32_t timestamp;            /* System time when error occurred (milliseconds) */
-  uint8_t lightId;               /* Light source ID (1-3) */
-  uint8_t errorType;             /* Type of error (using ErrorType_t) */
-  float measuredValue;           /* The value that caused the error */
-  uint8_t actionTaken;           /* Action taken (e.g., 1 = disabled light) */
+  uint8_t light_id;               /* Light source ID (1-3) */
+  uint8_t error_type;             /* Type of error (using ErrorType_t) */
+  float measured_value;           /* The value that caused the error */
+  uint8_t action_taken;           /* Action taken (e.g., 1 = disabled light) */
 } ErrorLogEntry_t;
 
 #ifdef __cplusplus
